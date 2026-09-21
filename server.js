@@ -7,9 +7,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser()); // Fija el bug para que los usuarios no se dupliquen en internet
+app.use(cookieParser()); 
 
-// Crear carpetas de almacenamiento físico dentro de la nube de Render
+// Crear carpetas de almacenamiento físico dentro de Render
 const dirUploads = path.join(__dirname, 'uploads');
 if (!fs.existsSync(dirUploads)) fs.mkdirSync(dirUploads);
 
@@ -42,7 +42,7 @@ function guardarBaseDatos() {
 cargarBaseDatos();
 const estilosCSS = `<style>
     body {
-        background-image: url('https://ibb.co') !important;
+        background-image: url('https://postimg.cc') !important;
         background-repeat: repeat !important;
         background-color: #111319;
         color: #f1f3f5;
@@ -64,7 +64,7 @@ const estilosCSS = `<style>
     .nav-links a { color: #ced4da; text-decoration: none; font-weight: bold; }
     .btn-red { background-color: #ff3333; color: white!important; padding: 8px 16px; border-radius: 6px; font-weight: bold; text-decoration: none; border: none; cursor: pointer; }
     .btn-blue { background-color: #2563eb; color: white; padding: 8px 20px; border-radius: 6px; font-weight: bold; text-decoration: none; border: none; }
-    .btn-like { background-color: #2d3139; color: #ced4da; padding: 6px 12px; border-radius: 6px; font-size: 12px; text-decoration: none; border: 1px solid #4b5563; font-weight: bold; }
+    .btn-like { background-color: #2d3139; color: #ced4da; padding: 6px 12px; border-radius: 6px; font-size: 12px; text-decoration: none; border: 1px solid #4b5563; font-weight: bold; display: inline-flex; align-items: center; gap: 4px; }
     .btn-like.active { background-color: #2563eb; color: white; }
     .btn-delete { background-color: #dc2626; color: white!important; padding: 4px 8px; border-radius: 4px; font-size: 11px; text-decoration: none; }
     .main-container { max-width: 1200px; margin: 40px auto; padding: 0 20px; }
@@ -75,7 +75,7 @@ const estilosCSS = `<style>
     .estrella-icono {
         width: 18px;
         height: 18px;
-        background-image: url('https://ibb.co');
+        background-image: url('https://postimg.cc');
         background-size: contain;
         background-repeat: no-repeat;
         display: inline-block;
@@ -84,8 +84,9 @@ const estilosCSS = `<style>
     .tags { display: flex; gap: 6px; margin-bottom: 10px; }
     .tag-version { background-color: #2e3545; color: #93c5fd; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
     .tag-category { background-color: #374151; color: #d1d5db; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
-    .card h3 a { color: white; text-decoration: none; font-size: 16px; }
-    .card p { color: #9ca3af; font-size: 12px; height: 35px; overflow: hidden; }
+    .card h3 { margin: 0 0 10px 0; font-size: 16px; }
+    .card h3 a { color: white; text-decoration: none; }
+    .card p { color: #9ca3af; font-size: 12px; height: 35px; overflow: hidden; margin: 0 0 15px 0; }
     .card-footer { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #9ca3af; border-top: 1px solid #2d3139; padding-top: 12px; margin-top: auto; }
     .author { color: #facc15; text-decoration: none; font-weight: bold; }
     .mod-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; }
@@ -100,12 +101,10 @@ const estilosCSS = `<style>
     .comment-item { background-color: #161920; border: 1px solid #2d3139; border-radius: 8px; padding: 15px; margin-bottom: 12px; }
     .comment-user { color: #facc15; font-weight: bold; font-size: 13px; }
     .form-box { background-color: rgba(31, 35, 43, 0.9); max-width: 500px; margin: 50px auto; padding: 30px; border-radius: 12px; border: 1px solid #2d3139; }
-    .file-drop { border: 2px dashed #374151; padding: 15px; text-align: center; border-radius: 8px; background: #161920; margin-bottom: 15px; }
     input, select, textarea { width: 100%; padding: 10px; margin-bottom: 15px; background-color: #161920; border: 1px solid #374151; color: white; border-radius: 6px; box-sizing: border-box; }
 </style>`;
-
 app.get('/', (req, res) => {
-    const sesionUsuario = req.cookies.usuarioSesion || null; // Manejo independiente de cookies fijado
+    const sesionUsuario = req.cookies.usuarioSesion || null;
     const buscarTexto = req.query.buscar ? req.query.buscar.toLowerCase() : '';
     const buscarCategoria = req.query.categoria || 'Todas';
     const buscarVersion = req.query.version || 'Todas';
@@ -118,7 +117,9 @@ app.get('/', (req, res) => {
     });
 
     let tarjetasHTML = '';
-    if (modsFiltrados.length === 0) tarjetasHTML = '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">No se encontraron mods.</p>';
+    if (modsFiltrados.length === 0) {
+        tarjetasHTML = '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">No se encontraron mods.</p>';
+    }
 
     modsFiltrados.forEach(mod => {
         const yaTieneLike = sesionUsuario ? mod.usuariosLike.includes(sesionUsuario) : false;
@@ -131,7 +132,28 @@ app.get('/', (req, res) => {
             botonEliminar = `<a href="/delete/${mod.id}" class="btn-delete" onclick="return confirm('¿Borrar?')">🗑️</a>`;
         }
 
-        tarjetasHTML += `<div class="card"><div class="card-img-box">${fotoPortada?`<img src="\${fotoPortada}">`:'<div class="estrella-icono" style="transform:scale(2);"></div>'}</div><div class="card-content"><div class="tags"><span class="tag-version">${mod.version}</span><span class="tag-category">${mod.categoria}</span></div> ### <a href="/mod/${mod.id}">${mod.titulo}</a><p>${mod.descripcion}</p><div class="card-footer"><span>por <span class="author">@${mod.autor}</span></span><div style="display:flex;gap:6px;align-items:center;"><a href="/like/${mod.id}" class="${claseLike}"><span class="estrella-icono"></span> ${mod.likes}</a><span>💬 ${numComentarios}</span><span>⬇ ${mod.descargas}</span>${botonEliminar}</div></div></div></div>`;
+        tarjetasHTML += `<div class="card">
+            <div class="card-img-box">
+                ${fotoPortada ? `<img src="\${fotoPortada}">` : '<img src="https://postimg.cc" style="width:40px;height:40px;object-fit:contain;">'}
+            </div>
+            <div class="card-content">
+                <div class="tags">
+                    <span class="tag-version">${mod.version}</span>
+                    <span class="tag-category">${mod.categoria}</span>
+                </div>
+                <h3><a href="/mod/${mod.id}">${mod.titulo}</a></h3>
+                <p>${mod.descripcion}</p>
+                <div class="card-footer">
+                    <span>por <span class="author">@${mod.autor}</span></span>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        <a href="/like/${mod.id}" class="${claseLike}"><span class="estrella-icono"></span> ${mod.likes}</a>
+                        <span>💬 ${numComentarios}</span>
+                        <span>⬇ ${mod.descargas}</span>
+                        ${botonEliminar}
+                    </div>
+                </div>
+            </div>
+        </div>`;
     });
 
     let authLinks = `<a href="/login" style="color:#ced4da;text-decoration:none;font-size:14px;">Iniciar sesión</a> <a href="/register" class="btn-red">Registrarme</a>`;
@@ -139,8 +161,9 @@ app.get('/', (req, res) => {
         authLinks = `<a href="/publish" class="btn-red">+ Publicar mod</a> <span style="color:#9ca3af;font-size:14px;margin-left:10px;">Hola, <b style="color:#ff3333;">${sesionUsuario}</b></span> <a href="/logout" style="color:#9ca3af;margin-left:10px;">Salir</a>`;
     }
 
-    res.send(`<html><head><title>Coop Free Mods Rebirth</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="https://ibb.co" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Inicio</a>${authLinks}</div></div><div class="main-container"><form action="/" method="GET" style="background-color:rgba(31,35,43,0.9);padding:15px;border-radius:12px;display:flex;gap:10px;align-items:center;border:1px solid #2d3139;margin-bottom:25px;backdrop-filter:blur(5px);"><input type="text" name="buscar" placeholder="Buscar por título..." style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;flex:1;" value="${req.query.buscar||''}"><select name="version" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:140px;"><option value="Todas">Todas las versiones</option><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><select name="categoria" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:150px;"><option value="Todas">Todas las categorías</option><option value="Personajes">Personajes</option><option value="Jugabilidad">Jugabilidad</option></select><button type="submit" class="btn-blue">Filtrar</button></form><p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">\${modsFiltrados.length} mods encontrados</p><div class="grid">${tarjetasHTML}</div></div></body></html>`);
+    res.send(`<html><head><title>Coop Free Mods Rebirth</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="https://postimg.cc" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Inicio</a>${authLinks}</div></div><div class="main-container"><form action="/" method="GET" style="background-color:rgba(31,35,43,0.9);padding:15px;border-radius:12px;display:flex;gap:10px;align-items:center;border:1px solid #2d3139;margin-bottom:25px;backdrop-filter:blur(5px);"><input type="text" name="buscar" placeholder="Buscar por título..." style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;flex:1;" value="${req.query.buscar||''}"><select name="version" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:140px;"><option value="Todas">Todas las versiones</option><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><select name="categoria" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:150px;"><option value="Todas">Todas las categorías</option><option value="Personajes">Personajes</option><option value="Jugabilidad">Jugabilidad</option></select><button type="submit" class="btn-blue">Filtrar</button></form><p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${modsFiltrados.length} mods encontrados</p><div class="grid">${tarjetasHTML}</div></div></body></html>`);
 });
+
 app.get('/mod/:id', (req, res) => {
     const sesionUsuario = req.cookies.usuarioSesion || null;
     const modEncontrado = listaMods.find(m => m.id === parseInt(req.params.id));
@@ -159,9 +182,8 @@ app.get('/mod/:id', (req, res) => {
     let cajaFormularioComentarios = `<p style="color:#9ca3af;"><a href="/login" style="color:#ff3333;">Inicia sesión</a> para comentar.</p>`;
     if (sesionUsuario) cajaFormularioComentarios = `<form action="/comment/${modEncontrado.id}" method="POST"><textarea name="comentarioTexto" placeholder="Escribe un comentario..." rows="2" required></textarea><button type="submit" class="btn-blue">💬 Comentar</button></form>`;
 
-    res.send(`<html><head><title>${modEncontrado.titulo}</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="https://ibb.co" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Volver</a></div></div><div class="main-container"><div class="mod-header"><div><div style="margin-bottom:10px;"><span class="tag-version" style="background:#2563eb; color:white;">${modEncontrado.version}</span> <span class="tag-category">${modEncontrado.categoria}</span></div><h1>${modEncontrado.titulo}</h1><div class="mod-meta"><span>por <b>@${modEncontrado.autor}</b></span> <span>⬇ ${modEncontrado.descargas} descargas</span> <a href="/like/${modEncontrado.id}" class="${claseLike}"><span class="estrella-icono"></span> ${modEncontrado.likes} Likes</a></div></div><a href="/download/${modEncontrado.id}" class="btn-red" style="padding:12px 30px;">⬇ Descargar Real .zip</a></div><div class="gallery-container">${fotosHTML}</div><div class="info-box"><h2>Descripción</h2><p>${modEncontrado.descripcion}</p></div><div class="info-box"><h2>💬 Comentarios</h2><div style="margin-bottom:20px;">${comentariosHTML}</div>${cajaFormularioComentarios}</div></div></body></html>`);
+    res.send(`<html><head><title>${modEncontrado.titulo}</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="https://postimg.cc" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Volver</a></div></div><div class="main-container"><div class="mod-header"><div><div style="margin-bottom:10px;"><span class="tag-version" style="background:#2563eb; color:white;">${modEncontrado.version}</span> <span class="tag-category">${modEncontrado.categoria}</span></div><h1>${modEncontrado.titulo}</h1><div class="mod-meta"><span>por <b>@${modEncontrado.autor}</b></span> <span>⬇ ${modEncontrado.descargas} descargas</span> <a href="/like/${modEncontrado.id}" class="${claseLike}"><span class="estrella-icono"></span> ${modEncontrado.likes} Likes</a></div></div><a href="/download/${modEncontrado.id}" class="btn-red" style="padding:12px 30px;">⬇ Descargar Real .zip</a></div><div class="gallery-container">${fotosHTML}</div><div class="info-box"><h2>Descripción</h2><p>${modEncontrado.descripcion}</p></div><div class="info-box"><h2>💬 Comentarios</h2><div style="margin-bottom:20px;">${comentariosHTML}</div>${cajaFormularioComentarios}</div></div></body></html>`);
 });
-
 app.get('/download/:id', (req, res) => {
     const mod = listaMods.find(m => m.id === parseInt(req.params.id));
     if (!mod || !mod.nombreArchivoServidor) return res.status(404).send('Archivo no encontrado');
@@ -199,11 +221,11 @@ app.get('/delete/:id', (req, res) => {
 
 app.get('/register', (req, res) => res.send(`<html><head>${estilosCSS}</head><body><div class="form-box"><h2>Crear cuenta</h2><form action="/register" method="POST"><label>Usuario</label><input type="text" name="usuario" required><label>Email</label><input type="email" name="email" required><label>Contraseña</label><input type="password" name="password" required><button type="submit" class="btn-red" style="width:100%;">Registrarme</button></form></div></body></html>`));
 app.post('/register', (req, res) => { listaUsuarios.push(req.body); guardarBaseDatos(); res.cookie('usuarioSesion', req.body.usuario); res.redirect('/'); });
+
 app.get('/login', (req, res) => res.send(`<html><head>${estilosCSS}</head><body><div class="form-box"><h2>Iniciar sesión</h2><form action="/login" method="POST"><label>Usuario</label><input type="text" name="usuario" required><label>Contraseña</label><input type="password" name="password" required><button type="submit" class="btn-red" style="width:100%;">Ingresar</button></form></div></body></html>`));
 app.post('/login', (req, res) => { const u = listaUsuarios.find(user => user.usuario === req.body.usuario && user.password === req.body.password); if (u) { res.cookie('usuarioSesion', u.usuario); res.redirect('/'); } else { res.send('Error. <a href="/login">Volver</a>'); } });
 app.get('/logout', (req, res) => { res.clearCookie('usuarioSesion'); res.redirect('/'); });
 
-// FORMULARIO OBLIGATORIO DE CARGA FISICA DE ARCHIVOS (SIN URLS)
 app.get('/publish', (req, res) => {
     if (!req.cookies.usuarioSesion) return res.redirect('/login');
     res.send(`<html><head><title>Publicar</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><h2>⭐ Coop Free Mods Rebirth</h2></div></div><div class="form-box"><h2>Publicar nuevo mod</h2><form action="/publish" method="POST" enctype="multipart/form-data"><label>Nombre del Mod:</label><input type="text" name="titulo" required><label>Versión:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option><option value="DX + EX">DX + EX</option></select><label>Categoría:</label><select name="categoria"><option value="Personajes">Personajes</option><option value="Jugabilidad">Jugabilidad</option><option value="HUD / Texturas">HUD / Texturas</option></select><label>Descripción:</label><textarea name="descripcion" required></textarea><label>Archivo del Mod (Sube tu .zip):</label><input type="file" name="archivoMod" required><label>Capturas del Mod (Sube hasta 4 fotos simultáneas):</label><input type="file" name="imagenesMod" accept="image/*" multiple required><button type="submit" class="btn-red" style="width:100%; padding:12px; margin-top:10px;">🚀 Publicar Mod Físico</button></form></div></body></html>`);
