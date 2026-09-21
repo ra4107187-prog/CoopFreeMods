@@ -3,6 +3,7 @@ const multer = require('multer');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const fs = require('fs');
+const https = require('https'); 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -40,6 +41,15 @@ function guardarBaseDatos() {
     fs.writeFileSync(rutaArchivoDatos, JSON.stringify({ usuarios: listaUsuarios, mods: listaMods }, null, 2), 'utf8');
 }
 cargarBaseDatos();
+
+// TRUCO ANTI-APAGADO (Pinger automático cada 10 minutos)
+setInterval(() => {
+    https.get('https://onrender.com', (res) => {
+        console.log(`[Auto-Wake] Ping enviado. Estado: ${res.statusCode}`);
+    }).on('error', (err) => {
+        console.log('[Auto-Wake] Error en el ping: ' + err.message);
+    });
+}, 10 * 60 * 1000);
 const estilosCSS = `<style>
     body {
         background-image: url('https://postimg.cc') !important;
@@ -125,7 +135,7 @@ app.get('/', (req, res) => {
         const yaTieneLike = sesionUsuario ? mod.usuariosLike.includes(sesionUsuario) : false;
         const claseLike = yaTieneLike ? 'btn-like active' : 'btn-like';
         const numComentarios = mod.comentarios ? mod.comentarios.length : 0;
-        const fotoPortada = mod.rutasImagenes && mod.rutasImagenes[0] ? mod.rutasImagenes[0] : '';
+        const fotoPortada = mod.rutasImagenes && mod.rutasImagenes ? mod.rutasImagenes : '';
 
         let botonEliminar = '';
         if (sesionUsuario && sesionUsuario === mod.autor) {
@@ -161,7 +171,7 @@ app.get('/', (req, res) => {
         authLinks = `<a href="/publish" class="btn-red">+ Publicar mod</a> <span style="color:#9ca3af;font-size:14px;margin-left:10px;">Hola, <b style="color:#ff3333;">${sesionUsuario}</b></span> <a href="/logout" style="color:#9ca3af;margin-left:10px;">Salir</a>`;
     }
 
-    res.send(`<html><head><title>Coop Free Mods Rebirth</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="https://postimg.cc" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Inicio</a>${authLinks}</div></div><div class="main-container"><form action="/" method="GET" style="background-color:rgba(31,35,43,0.9);padding:15px;border-radius:12px;display:flex;gap:10px;align-items:center;border:1px solid #2d3139;margin-bottom:25px;backdrop-filter:blur(5px);"><input type="text" name="buscar" placeholder="Buscar por título..." style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;flex:1;" value="${req.query.buscar||''}"><select name="version" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:140px;"><option value="Todas">Todas las versiones</option><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><select name="categoria" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:150px;"><option value="Todas">Todas las categorías</option><option value="Personajes">Personajes</option><option value="Jugabilidad">Jugabilidad</option></select><button type="submit" class="btn-blue">Filtrar</button></form><p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${modsFiltrados.length} mods encontrados</p><div class="grid">${tarjetasHTML}</div></div></body></html>`);
+    res.send(`<html><head><title>Coop Free Mods Rebirth</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="https://postimg.cc" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Inicio</a>${authLinks}</div></div><div class="main-container"><form action="/" method="GET" style="background-color:rgba(31,35,43,0.9);padding:15px;border-radius:12px;display:flex;gap:10px;align-items:center;border:1px solid #2d3139;margin-bottom:25px;backdrop-filter:blur(5px);"><input type="text" name="buscar" placeholder="Buscar por título..." style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;flex:1;" value="${req.query.buscar||''}"><select name="version" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:140px;"><option value="Todas">Todas las versiones</option><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><select name="categoria" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:170px;"><option value="Todas">Todas las categorías</option><option value="Personajes">👤 Personajes</option><option value="Jugabilidad">🎮 Jugabilidad</option><option value="HUD / Texturas">🎨 HUD / Texturas</option><option value="Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="Scripts LUA">📜 Scripts LUA</option></select><button type="submit" class="btn-blue">Filtrar</button></form><p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${modsFiltrados.length} mods encontrados</p><div class="grid">${tarjetasHTML}</div></div></body></html>`);
 });
 
 app.get('/mod/:id', (req, res) => {
@@ -228,19 +238,19 @@ app.get('/logout', (req, res) => { res.clearCookie('usuarioSesion'); res.redirec
 
 app.get('/publish', (req, res) => {
     if (!req.cookies.usuarioSesion) return res.redirect('/login');
-    res.send(`<html><head><title>Publicar</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><h2>⭐ Coop Free Mods Rebirth</h2></div></div><div class="form-box"><h2>Publicar nuevo mod</h2><form action="/publish" method="POST" enctype="multipart/form-data"><label>Nombre del Mod:</label><input type="text" name="titulo" required><label>Versión:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option><option value="DX + EX">DX + EX</option></select><label>Categoría:</label><select name="categoria"><option value="Personajes">Personajes</option><option value="Jugabilidad">Jugabilidad</option><option value="HUD / Texturas">HUD / Texturas</option></select><label>Descripción:</label><textarea name="descripcion" required></textarea><label>Archivo del Mod (Sube tu .zip):</label><input type="file" name="archivoMod" required><label>Capturas del Mod (Sube hasta 4 fotos simultáneas):</label><input type="file" name="imagenesMod" accept="image/*" multiple required><button type="submit" class="btn-red" style="width:100%; padding:12px; margin-top:10px;">🚀 Publicar Mod Físico</button></form></div></body></html>`);
+    res.send(`<html><head><title>Publicar</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><h2>⭐ Coop Free Mods Rebirth</h2></div></div><div class="form-box"><h2>Publicar nuevo mod</h2><form action="/publish" method="POST" enctype="multipart/form-data"><label>Nombre del Mod:</label><input type="text" name="titulo" required><label>Versión:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option><option value="DX + EX">DX + EX</option></select><label>Categoría:</label><select name="categoria"><option value="👤 Personajes">👤 Personajes</option><option value="🎮 Jugabilidad">🎮 Jugabilidad</option><option value="🎨 HUD / Texturas">🎨 HUD / Texturas</option><option value="🗺️ Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="📜 Scripts LUA">📜 Scripts LUA</option></select><label>Descripción:</label><textarea name="descripcion" required></textarea><label>Archivo del Mod (Sube tu .zip):</label><input type="file" name="archivoMod" required><label>Capturas del Mod (Sube hasta 4 fotos simultáneas):</label><input type="file" name="imagenesMod" accept="image/*" multiple required><button type="submit" class="btn-red" style="width:100%; padding:12px; margin-top:10px;">🚀 Publicar Mod Físico</button></form></div></body></html>`);
 });
 
 app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name: 'imagenesMod', maxCount: 4 }]), (req, res) => {
     const sesionUsuario = req.cookies.usuarioSesion || null;
     if (!sesionUsuario) return res.redirect('/login');
-    const arc = req.files['archivoMod'] ? req.files['archivoMod'][0] : null;
+    const arc = req.files['archivoMod'] ? req.files['archivoMod'] : null;
     const imgs = req.files['imagenesMod'] ? req.files['imagenesMod'] : [];
     if (!arc || imgs.length === 0) return res.send('Faltan archivos obligatorios.');
     
     const rutasDeFotos = imgs.map(f => '/uploads/' + f.filename);
     const nuevoMod = {
-        id: listaMods.length + 1, titulo: req.body.titulo, descripcion: req.body.descripcion, autor: sesionUsuario, version: req.body.version, categoria: req.body.categoria,
+        id: listaMods.length + 1, titulo: req.body.titulo, descripcion: req.body.descripcion, autor: sesionUsuario, version: req.body.version, category: req.body.categoria,
         nombreArchivoReal: arc.originalname, nombreArchivoServidor: arc.filename, rutasImagenes: rutasDeFotos,
         descargas: 0, likes: 0, usuariosLike: [], comentarios: []
     };
