@@ -10,7 +10,6 @@ const PORT = process.env.PORT || 3000;
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser()); 
 
-// Crear carpetas de almacenamiento físico dentro de Render
 const dirUploads = path.join(__dirname, 'uploads');
 if (!fs.existsSync(dirUploads)) fs.mkdirSync(dirUploads);
 
@@ -22,7 +21,6 @@ const upload = multer({ storage: storage });
 
 app.use('/uploads', express.static('uploads'));
 
-// BASE DE DATOS PERSISTENTE JSON
 const rutaArchivoDatos = path.join(__dirname, 'baseDatos.json');
 let listaUsuarios = []; 
 let listaMods = [];
@@ -42,7 +40,6 @@ function guardarBaseDatos() {
 }
 cargarBaseDatos();
 
-// TRUCO ANTI-APAGADO (Pinger automático cada 10 minutos)
 setInterval(() => {
     https.get('https://onrender.com', (res) => {
         console.log(`[Auto-Wake] Ping enviado. Estado: ${res.statusCode}`);
@@ -69,7 +66,7 @@ const estilosCSS = `<style>
         border-bottom: 3px solid #ff3333;
         backdrop-filter: blur(5px);
     }
-    .brand-logo { height: 45px; display: block; }
+    .brand-logo { height: 40px; display: block; object-fit: contain; }
     .nav-links { display: flex; align-items: center; gap: 20px; }
     .nav-links a { color: #ced4da; text-decoration: none; font-weight: bold; }
     .btn-red { background-color: #ff3333; color: white!important; padding: 8px 16px; border-radius: 6px; font-weight: bold; text-decoration: none; border: none; cursor: pointer; }
@@ -79,13 +76,13 @@ const estilosCSS = `<style>
     .btn-delete { background-color: #dc2626; color: white!important; padding: 4px 8px; border-radius: 4px; font-size: 11px; text-decoration: none; }
     .main-container { max-width: 1200px; margin: 40px auto; padding: 0 20px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; }
-    .card { background-color: rgba(31, 35, 43, 0.9); border-radius: 12px; overflow: hidden; border: 1px solid #2d3139; box-shadow: 0 4px 10px rgba(0,0,0,0.4); display: flex; flex-direction: column; backdrop-filter: blur(3px); }
+    .card { background-color: rgba(31, 35, 43, 0.93); border-radius: 12px; overflow: hidden; border: 1px solid #2d3139; box-shadow: 0 4px 10px rgba(0,0,0,0.4); display: flex; flex-direction: column; backdrop-filter: blur(3px); }
     .card-img-box { height: 130px; background-color: #161920; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .card-img-box img { width: 100%; height: 100%; object-fit: cover; }
     .estrella-icono {
-        width: 18px;
-        height: 18px;
-        background-image: url('https://postimg.cc');
+        width: 16px;
+        height: 16px;
+        background-image: url('https://icons8.com');
         background-size: contain;
         background-repeat: no-repeat;
         display: inline-block;
@@ -135,7 +132,7 @@ app.get('/', (req, res) => {
         const yaTieneLike = sesionUsuario ? mod.usuariosLike.includes(sesionUsuario) : false;
         const claseLike = yaTieneLike ? 'btn-like active' : 'btn-like';
         const numComentarios = mod.comentarios ? mod.comentarios.length : 0;
-        const fotoPortada = mod.rutasImagenes && mod.rutasImagenes ? mod.rutasImagenes : '';
+        const fotoPortada = mod.rutasImagenes && mod.rutasImagenes[0] ? mod.rutasImagenes[0] : '';
 
         let botonEliminar = '';
         if (sesionUsuario && sesionUsuario === mod.autor) {
@@ -144,7 +141,7 @@ app.get('/', (req, res) => {
 
         tarjetasHTML += `<div class="card">
             <div class="card-img-box">
-                ${fotoPortada ? `<img src="\${fotoPortada}">` : '<img src="https://postimg.cc" style="width:40px;height:40px;object-fit:contain;">'}
+                ${fotoPortada ? `<img src="\${fotoPortada}">` : '<img src="https://icons8.com" style="width:40px;height:40px;object-fit:contain;">'}
             </div>
             <div class="card-content">
                 <div class="tags">
@@ -171,7 +168,7 @@ app.get('/', (req, res) => {
         authLinks = `<a href="/publish" class="btn-red">+ Publicar mod</a> <span style="color:#9ca3af;font-size:14px;margin-left:10px;">Hola, <b style="color:#ff3333;">${sesionUsuario}</b></span> <a href="/logout" style="color:#9ca3af;margin-left:10px;">Salir</a>`;
     }
 
-    res.send(`<html><head><title>Coop Free Mods Rebirth</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="https://postimg.cc" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Inicio</a>${authLinks}</div></div><div class="main-container"><form action="/" method="GET" style="background-color:rgba(31,35,43,0.9);padding:15px;border-radius:12px;display:flex;gap:10px;align-items:center;border:1px solid #2d3139;margin-bottom:25px;backdrop-filter:blur(5px);"><input type="text" name="buscar" placeholder="Buscar por título..." style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;flex:1;" value="${req.query.buscar||''}"><select name="version" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:140px;"><option value="Todas">Todas las versiones</option><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><select name="categoria" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:170px;"><option value="Todas">Todas las categorías</option><option value="Personajes">👤 Personajes</option><option value="Jugabilidad">🎮 Jugabilidad</option><option value="HUD / Texturas">🎨 HUD / Texturas</option><option value="Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="Scripts LUA">📜 Scripts LUA</option></select><button type="submit" class="btn-blue">Filtrar</button></form><p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${modsFiltrados.length} mods encontrados</p><div class="grid">${tarjetasHTML}</div></div></body></html>`);
+    res.send(`<html><head><title>Coop Free Mods Rebirth</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="https://postimg.cc" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Inicio</a>${authLinks}</div></div><div class="main-container"><form action="/" method="GET" style="background-color:rgba(31,35,43,0.9);padding:15px;border-radius:12px;display:flex;gap:10px;align-items:center;border:1px solid #2d3139;margin-bottom:25px;backdrop-filter:blur(5px);"><input type="text" name="buscar" placeholder="Buscar por título..." style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;flex:1;" value="${req.query.buscar||''}"><select name="version" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:140px;"><option value="Todas">Todas las versiones</option><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><select name="categoria" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:170px;"><option value="Todas">Todas las categorías</option><option value="Personajes">👤 Personajes</option><option value="Jugabilidad">🎮 Jugabilidad</option><option value="HUD / Texturas">🎨 HUD / Texturas</option><option value="Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="Scripts LUA">📜 Scripts LUA</option><option value="Otros">📦 Otros</option></select><button type="submit" class="btn-blue">Filtrar</button></form><p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${modsFiltrados.length} mods encontrados</p><div class="grid">${tarjetasHTML}</div></div></body></html>`);
 });
 
 app.get('/mod/:id', (req, res) => {
@@ -238,7 +235,7 @@ app.get('/logout', (req, res) => { res.clearCookie('usuarioSesion'); res.redirec
 
 app.get('/publish', (req, res) => {
     if (!req.cookies.usuarioSesion) return res.redirect('/login');
-    res.send(`<html><head><title>Publicar</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><h2>⭐ Coop Free Mods Rebirth</h2></div></div><div class="form-box"><h2>Publicar nuevo mod</h2><form action="/publish" method="POST" enctype="multipart/form-data"><label>Nombre del Mod:</label><input type="text" name="titulo" required><label>Versión:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option><option value="DX + EX">DX + EX</option></select><label>Categoría:</label><select name="categoria"><option value="👤 Personajes">👤 Personajes</option><option value="🎮 Jugabilidad">🎮 Jugabilidad</option><option value="🎨 HUD / Texturas">🎨 HUD / Texturas</option><option value="🗺️ Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="📜 Scripts LUA">📜 Scripts LUA</option></select><label>Descripción:</label><textarea name="descripcion" required></textarea><label>Archivo del Mod (Sube tu .zip):</label><input type="file" name="archivoMod" required><label>Capturas del Mod (Sube hasta 4 fotos simultáneas):</label><input type="file" name="imagenesMod" accept="image/*" multiple required><button type="submit" class="btn-red" style="width:100%; padding:12px; margin-top:10px;">🚀 Publicar Mod Físico</button></form></div></body></html>`);
+    res.send(`<html><head><title>Publicar</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><h2>⭐ Coop Free Mods Rebirth</h2></div></div><div class="form-box"><h2>Publicar nuevo mod</h2><form action="/publish" method="POST" enctype="multipart/form-data"><label>Nombre del Mod:</label><input type="text" name="titulo" required><label>Versión:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option><option value="DX + EX">DX + EX</option></select><label>Categoría:</label><select name="categoria"><option value="👤 Personajes">👤 Personajes</option><option value="🎮 Jugabilidad">🎮 Jugabilidad</option><option value="🎨 HUD / Texturas">🎨 HUD / Texturas</option><option value="🗺️ Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="📜 Scripts LUA">📜 Scripts LUA</option><option value="Otros">📦 Otros</option></select><label>Descripción:</label><textarea name="descripcion" required></textarea><label>Archivo del Mod (Sube tu .zip):</label><input type="file" name="archivoMod" required><label>Capturas del Mod (Sube hasta 4 fotos simultáneas):</label><input type="file" name="imagenesMod" accept="image/*" multiple required><button type="submit" class="btn-red" style="width:100%; padding:12px; margin-top:10px;">🚀 Publicar Mod Físico</button></form></div></body></html>`);
 });
 
 app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name: 'imagenesMod', maxCount: 4 }]), (req, res) => {
@@ -250,7 +247,7 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
     
     const rutasDeFotos = imgs.map(f => '/uploads/' + f.filename);
     const nuevoMod = {
-        id: listaMods.length + 1, titulo: req.body.titulo, descripcion: req.body.descripcion, autor: sesionUsuario, version: req.body.version, category: req.body.categoria,
+        id: listaMods.length + 1, titulo: req.body.titulo, descripcion: req.body.descripcion, autor: sesionUsuario, version: req.body.version, categoria: req.body.categoria,
         nombreArchivoReal: arc.originalname, nombreArchivoServidor: arc.filename, rutasImagenes: rutasDeFotos,
         descargas: 0, likes: 0, usuariosLike: [], comentarios: []
     };
