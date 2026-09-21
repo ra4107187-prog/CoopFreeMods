@@ -37,11 +37,25 @@ function guardarBaseDatos() {
 }
 cargarBaseDatos();
 
+// FILTRO DE SEGURIDAD: Solo permite .zip, .7z, .rar y .lua
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, 'uploads/'),
     filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
-const upload = multer({ storage: storage });
+
+const upload = multer({
+    storage: storage,
+    fileFilter: (req, file, cb) => {
+        if (file.fieldname === 'archivoMod') {
+            const ext = path.extname(file.originalname).toLowerCase();
+            if (ext === '.zip' || ext === '.7z' || ext === '.rar' || ext === '.lua') {
+                return cb(null, true);
+            }
+            return cb(new Error('Formato de archivo no permitido. Solo se aceptan extensiones .zip, .7z, .rar o .lua'));
+        }
+        cb(null, true);
+    }
+});
 
 setInterval(() => {
     https.get('https://onrender.com', (res) => {
@@ -61,11 +75,11 @@ const estilosCSS = '<style>' +
     '}' +
     '.navbar {' +
         'background-color: rgba(15, 17, 21, 0.95);' +
-        'padding: 1.7px 50px;' +
+        'padding: 2px 50px;' +
         'display: flex; justify-content: space-between; align-items: center;' +
         'border-bottom: 3px solid #ff3333; backdrop-filter: blur(5px);' +
     '}' +
-    '.brand-logo { height: 80px; display: block; object-fit: contain; }' +
+    '.brand-logo { height: 95px; display: block; object-fit: contain; }' +
     '.nav-links { display: flex; align-items: center; gap: 20px; }' +
     '.nav-links a { color: #ced4da; text-decoration: none; font-weight: bold; }' +
     '.nav-links a:hover { color: white; }' +
@@ -194,7 +208,7 @@ app.get('/mod/:id', (req, res) => {
     if (!mod) return res.status(404).send('<h1>Mod no encontrado</h1>');
     
     let fotosHTML = '';
-    if (mod.rutasImagenes) {
+    if (mod.rutasImagenes && mod.rutasImagenes.length > 0) {
         mod.rutasImagenes.forEach(url => { if(url) fotosHTML += '<div class="mod-gallery-preview"><img src="' + url + '"></div>'; });
     }
     let updatesHTML = '';
@@ -208,7 +222,7 @@ app.get('/mod/:id', (req, res) => {
     } else { comentariosHTML = '<p style="color:#9ca3af;">No hay comentarios todavía.</p>'; }
 
     let bEdit = (sesionUsuario === mod.autor) ? '<a href="/edit-mod/' + mod.id + '" class="btn-blue" style="font-size:13px;padding:6px 12px;">✏️ Editar / Actualizar</a>' : '';
-    let cajaComentarios = sesionUsuario ? '<form action="/comment/' + mod.id + '" method="POST"><textarea name="ctext" placeholder="Escribe un comentario..." rows="2" required></textarea><button type="submit" class="btn-blue">💬 Comentar</button></form>' : '<p><a href="/login" style="color:#ff3333;">Inicia sesión</a> para comentar.</p>';
+    let cajaComentarios = sesionUsuario ? `<form action="/comment/${mod.id}" method="POST"><textarea name="ctext" placeholder="Escribe un comentario..." rows="2" required></textarea><button type="submit" class="btn-blue">💬 Comentar</button></form>` : '<p><a href="/login" style="color:#ff3333;">Inicia sesión</a> para comentar.</p>';
 
     res.send('<html><head><title>' + mod.titulo + '</title>' + estilosCSS + '</head><body><div class="navbar"><div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Volver al Inicio</a></div></div><div class="main-container"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;"><div><h1>' + mod.titulo + '</h1><p style="margin:0;color:#9ca3af;">Creado por <a href="/user/' + mod.autor + '" class="author">@' + mod.autor + '</a></p></div><div style="display:flex;gap:10px;align-items:center;"><a href="/download/' + mod.id + '" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar (.zip)</a>' + bEdit + '</div></div><div style="display:grid;grid-template-columns:2fr 1fr;gap:25px;"><div class="info-box"><h2>Descripción</h2><p>' + mod.descripcion + '</p>' + fotosHTML + '</div><div><div class="info-box"><h2>Detalles Técnicos</h2><table class="meta-table"><tr><td>Versión:</td><td>' + mod.version + '</td></tr><tr><td>Categoría:</td><td>' + mod.categoria + '</td></tr><tr><td>Publicado:</td><td>' + (mod.fechaCreacion || 'Reciente') + '</td></tr><tr><td>Peso:</td><td>' + (mod.pesoArchivo || 'Desconocido') + '</td></tr><tr><td>Descargas:</td><td>' + mod.descargas + '</td></tr></table></div><div class="info-box"><h2>🔄 Historial de Cambios</h2>' + updatesHTML + '</div></div></div><div class="info-box" style="margin-top:25px;"><h2>💬 Comentarios</h2><div style="margin-bottom:20px;">' + comentariosHTML + '</div>' + cajaComentarios + '</div></div></body></html>');
 });
@@ -243,7 +257,7 @@ app.get('/edit-mod/:id', (req, res) => {
     const sesionUsuario = req.cookies.usuarioSesion || null;
     const mod = listaMods.find(m => m.id === parseInt(req.params.id));
     if (!mod || mod.autor !== sesionUsuario) return res.send('No tienes permisos.');
-    res.send('<html><head><title>Editar Mod</title>' + estilosCSS + '</head><body><div class="form-box"><h2>✏️ Modificar / Lanzar Update</h2><form action="/edit-mod/' + mod.id + '" method="POST" enctype="multipart/form-data"><label>Título:</label><input type="text" name="titulo" value="' + mod.titulo + '" required><label>Descripción:</label><textarea name="descripcion" required>' + mod.descripcion + '</textarea><label>Lanzar Nueva Versión (Opcional - Sube un nuevo .zip):</label><input type="file" name="archivoMod"><label>Notas de la actualización / Changelog:</label><input type="text" name="notasUpdate" placeholder="Changelog..."><button type="submit" class="btn-blue" style="width:100%;">💾 Guardar Cambios</button></form></div></body></html>');
+    res.send('<html><head><title>Editar Mod</title>' + estilosCSS + '</head><body><div class="form-box"><h2>✏️ Modificar / Lanzar Update</h2><form action="/edit-mod/' + mod.id + '" method="POST" enctype="multipart/form-data"><label>Título:</label><input type="text" name="titulo" value="' + mod.titulo + '" required><label>Descripción:</label><textarea name="descripcion" required>' + mod.descripcion + '</textarea><label>Lanzar Nueva Versión (Opcional - Sube un nuevo .zip):</label><input type="file" name="archivoMod"><label>Notas de la actualización:</label><input type="text" name="notasUpdate" placeholder="Changelog..."><button type="submit" class="btn-blue" style="width:100%;">💾 Guardar Cambios</button></form></div></body></html>');
 });
 
 app.post('/edit-mod/:id', upload.fields([{ name: 'archivoMod', maxCount: 1 }]), (req, res) => {
@@ -264,16 +278,18 @@ app.post('/edit-mod/:id', upload.fields([{ name: 'archivoMod', maxCount: 1 }]), 
 
 app.get('/publish', (req, res) => {
     if (!req.cookies.usuarioSesion) return res.redirect('/login');
-    res.send('<html><head><title>Publicar</title>' + estilosCSS + '</head><body><div class="form-box"><h2>🚀 Publicar Mod Físico</h2><form action="/publish" method="POST" enctype="multipart/form-data"><label>Nombre del Mod:</label><input type="text" name="titulo" required><label>Versión del emulador:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><label>Categoría:</label><select name="categoria"><option value="Personajes">👤 Personajes</option><option value="Jugabilidad">🎮 Jugabilidad</option><option value="HUD / Texturas">🎨 HUD / Texturas</option><option value="Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="Scripts LUA">📜 Scripts LUA</option><option value="Otros">📦 Otros</option></select><label>Descripción:</label><textarea name="descripcion" required></textarea><label>Archivo del Mod (.zip):</label><input type="file" name="archivoMod" required><label>Capturas (Hasta 4 imágenes):</label><input type="file" name="imagenesMod" accept="image/*" multiple required><button type="submit" class="btn-red" style="width:100%;">Publicar Mod</button></form></div></body></html>');
+    res.send('<html><head><title>Publicar</title>' + estilosCSS + '</head><body><div class="form-box"><h2>🚀 Publicar Mod Físico</h2><form action="/publish" method="POST" enctype="multipart/form-data"><label>Nombre del Mod:</label><input type="text" name="titulo" required><label>Versión del emulador:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><label>Categoría:</label><select name="categoria"><option value="Personajes">👤 Personajes</option><option value="Jugabilidad">🎮 Jugabilidad</option><option value="HUD / Texturas">🎨 HUD / Texturas</option><option value="Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="Scripts LUA">📜 Scripts LUA</option><option value="Otros">📦 Otros</option></select><label>Descripción:</label><textarea name="descripcion" required></textarea><label>Archivo del Mod (.zip, .7z, .rar, .lua):</label><input type="file" name="archivoMod" required><label>Capturas (Opcional - Máximo 4 imágenes):</label><input type="file" name="imagenesMod" accept="image/*" multiple><button type="submit" class="btn-red" style="width:100%;">Publicar Mod</button></form></div></body></html>');
 });
 
 app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name: 'imagenesMod', maxCount: 4 }]), (req, res) => {
     const sesionUsuario = req.cookies.usuarioSesion || null; if (!sesionUsuario) return res.redirect('/login');
     const arc = req.files['archivoMod'] ? req.files['archivoMod'][0] : null;
     const imgs = req.files['imagenesMod'] ? req.files['imagenesMod'] : [];
-    if (!arc) return res.send('Falta el archivo comprimido .zip.');
+    if (!arc) return res.send('Falta el archivo legítimo del mod.');
     
-    const rutasDeFotos = imgs.map(f => '/uploads/' + f.filename);
+    // Capturas opcionales: si no hay fotos, el array queda vacío
+    const rutasDeFotos = imgs.length > 0 ? imgs.map(f => '/uploads/' + f.filename) : [];
+    
     const nuevoMod = {
         id: listaMods.length + 1, titulo: req.body.titulo, descripcion: req.body.descripcion, autor: sesionUsuario, version: req.body.version, categoria: req.body.categoria,
         nombreArchivoReal: arc.originalname, nombreArchivoServidor: arc.filename, rutasImagenes: rutasDeFotos,
