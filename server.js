@@ -61,7 +61,7 @@ const estilosCSS = `<style>
     }
     .navbar {
         background-color: rgba(15, 17, 21, 0.95);
-        padding: 2px 50px;
+        padding: 1.7px 50px;
         display: flex; justify-content: space-between; align-items: center;
         border-bottom: 3px solid #ff3333; backdrop-filter: blur(5px);
     }
