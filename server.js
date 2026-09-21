@@ -65,7 +65,7 @@ const estilosCSS = `<style>
         display: flex; justify-content: space-between; align-items: center;
         border-bottom: 3px solid #ff3333; backdrop-filter: blur(5px);
     }
-    .brand-logo { height: 90px; display: block; object-fit: contain; }
+    .brand-logo { height: 140px; display: block; object-fit: contain; }
     .nav-links { display: flex; align-items: center; gap: 20px; }
     .nav-links a { color: #ced4da; text-decoration: none; font-weight: bold; }
     .nav-links a:hover { color: white; }
