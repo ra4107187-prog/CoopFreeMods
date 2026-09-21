@@ -126,7 +126,7 @@ app.get('/', (req, res) => {
         tarjetasHTML += `<div class="card">
             <div class="card-img-box">
                 ${fotoPortada ? `<img src="\${fotoPortada}">` : '<img src="https://icons8.com" style="width:40px;height:40px;object-fit:contain;">'}
-            </div>
+            </div>`;
             <div class="card-content">
                 <div class="tags">
                     <span class="tag-version">${mod.version}</span>
