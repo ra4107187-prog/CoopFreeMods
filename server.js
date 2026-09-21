@@ -61,24 +61,22 @@ const estilosCSS = `<style>
     }
     .navbar {
         background-color: rgba(15, 17, 21, 0.95);
-        padding: 10px 50px;
+        padding: 15px 50px;
         display: flex; justify-content: space-between; align-items: center;
         border-bottom: 3px solid #ff3333; backdrop-filter: blur(5px);
     }
-    .brand-logo { height: 40px; display: block; object-fit: contain; }
+    .brand-logo { height: 60px; display: block; object-fit: contain; }
     .nav-links { display: flex; align-items: center; gap: 20px; }
     .nav-links a { color: #ced4da; text-decoration: none; font-weight: bold; }
+    .nav-links a:hover { color: white; }
     .btn-red { background-color: #ff3333; color: white!important; padding: 8px 16px; border-radius: 6px; font-weight: bold; text-decoration: none; border: none; cursor: pointer; }
     .btn-blue { background-color: #2563eb; color: white!important; padding: 8px 20px; border-radius: 6px; font-weight: bold; text-decoration: none; border: none; cursor: pointer; }
-    .btn-like { background-color: #2d3139; color: #ced4da; padding: 6px 12px; border-radius: 6px; font-size: 12px; text-decoration: none; border: 1px solid #4b5563; font-weight: bold; display: inline-flex; align-items: center; gap: 4px; }
-    .btn-like.active { background-color: #2563eb; color: white; }
     .btn-delete { background-color: #dc2626; color: white!important; padding: 4px 8px; border-radius: 4px; font-size: 11px; text-decoration: none; }
     .main-container { max-width: 1200px; margin: 40px auto; padding: 0 20px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; }
     .card { background-color: rgba(31, 35, 43, 0.93); border-radius: 12px; overflow: hidden; border: 1px solid #2d3139; box-shadow: 0 4px 10px rgba(0,0,0,0.4); display: flex; flex-direction: column; backdrop-filter: blur(3px); }
-    .card-img-box { height: 130px; background-color: #161920; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .card-img-box { height: 140px; background-color: #161920; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .card-img-box img { width: 100%; height: 100%; object-fit: cover; }
-    .estrella-icono { width: 16px; height: 16px; background-image: url('https://icons8.com'); background-size: contain; background-repeat: no-repeat; display: inline-block; }
     .card-content { padding: 15px; flex-grow: 1; }
     .tags { display: flex; gap: 6px; margin-bottom: 10px; }
     .tag-version { background-color: #2e3545; color: #93c5fd; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
@@ -98,6 +96,8 @@ const estilosCSS = `<style>
     .meta-table td { padding: 8px; border-bottom: 1px solid #2d3139; font-size: 14px; }
     .meta-table td:first-child { color: #9ca3af; font-weight: bold; width: 40%; }
     .changelog-item { background: #161920; padding: 10px; border-radius: 6px; margin-bottom: 8px; font-size: 13px; border-left: 3px solid #ff3333; }
+    .mod-gallery-preview img { width: 100%; max-width: 600px; height: auto; border-radius: 8px; border: 1px solid #374151; display: block; object-fit: contain; margin-top: 10px; }
+    .top-badge { background: #facc15; color: #111319; font-weight: bold; padding: 2px 8px; border-radius: 4px; margin-right: 8px; }
 </style>`;
 app.get('/', (req, res) => {
     const sesionUsuario = req.cookies.usuarioSesion || null;
@@ -137,7 +137,7 @@ app.get('/', (req, res) => {
                 <div class="card-footer">
                     <span>por <a href="/user/${mod.autor}" class="author">@${mod.autor}</a></span>
                     <div style="display:flex;gap:6px;align-items:center;">
-                        <a href="/like/${mod.id}" class="${claseLike}"><span class="estrella-icono"></span> ${mod.likes}</a>
+                        <a href="/like/${mod.id}" class="${claseLike}">⭐ ${mod.likes}</a>
                         <span>💬 ${numComentarios}</span>
                     </div>
                 </div>
@@ -150,9 +150,51 @@ app.get('/', (req, res) => {
         authLinks = `<a href="/publish" class="btn-red">+ Publicar mod</a> <span style="color:#9ca3af;font-size:14px;margin-left:10px;">Hola, <a href="/user/${sesionUsuario}" style="color:#ff3333;font-weight:bold;text-decoration:none;">${sesionUsuario}</a></span> <a href="/logout" style="color:#9ca3af;margin-left:10px;">Salir</a>`;
     }
 
-    res.send(`<html><head><title>Coop Free Mods</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Inicio</a>${authLinks}</div></div><div class="main-container"><form action="/" method="GET" style="background-color:rgba(31,35,43,0.9);padding:15px;border-radius:12px;display:flex;gap:10px;align-items:center;border:1px solid #2d3139;margin-bottom:25px;backdrop-filter:blur(5px);"><input type="text" name="buscar" placeholder="Buscar mods..." style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;flex:1;" value="${req.query.buscar||''}"><select name="version" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:140px;"><option value="Todas">Todas las versiones</option><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><select name="categoria" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:170px;"><option value="Todas">Todas las categorías</option><option value="Personajes">👤 Personajes</option><option value="Jugabilidad">🎮 Jugabilidad</option><option value="HUD / Texturas">🎨 HUD / Texturas</option><option value="Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="Scripts LUA">📜 Scripts LUA</option><option value="Otros">📦 Otros</option></select><button type="submit" class="btn-blue">Filtrar</button></form><p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${modsFiltrados.length} mods encontrados</p><div class="grid">${tarjetasHTML}</div></div></body></html>`);
+    res.send(`<html><head><title>Coop Free Mods</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Inicio</a><a href="/top">⭐ Top 10</a>${authLinks}</div></div><div class="main-container"><form action="/" method="GET" style="background-color:rgba(31,35,43,0.9);padding:15px;border-radius:12px;display:flex;gap:10px;align-items:center;border:1px solid #2d3139;margin-bottom:25px;backdrop-filter:blur(5px);"><input type="text" name="buscar" placeholder="Buscar mods..." style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;flex:1;" value="${req.query.buscar||''}"><select name="version" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:140px;"><option value="Todas">Todas las versiones</option><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><select name="categoria" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:170px;"><option value="Todas">Todas las categorías</option><option value="Personajes">👤 Personajes</option><option value="Jugabilidad">🎮 Jugabilidad</option><option value="HUD / Texturas">🎨 HUD / Texturas</option><option value="Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="Scripts LUA">📜 Scripts LUA</option><option value="Otros">📦 Otros</option></select><button type="submit" class="btn-blue">Filtrar</button></form><p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${modsFiltrados.length} mods encontrados</p><div class="grid">${tarjetasHTML}</div></div></body></html>`);
 });
 
+app.get('/top', (req, res) => {
+    const sesionUsuario = req.cookies.usuarioSesion || null;
+    const buscarCategoria = req.query.categoria || 'Todas';
+    const buscarVersion = req.query.version || 'Todas';
+
+    let modsTop = listaMods.filter(mod => {
+        const coincideCategoria = (buscarCategoria === 'Todas' || mod.categoria === buscarCategoria);
+        const coincideVersion = (buscarVersion === 'Todas' || mod.version === buscarVersion);
+        return coincideCategoria && coincideVersion;
+    });
+
+    modsTop.sort((a, b) => b.descargas - a.descargas);
+    modsTop = modsTop.slice(0, 10);
+
+    let tarjetasHTML = '';
+    if (modsTop.length === 0) {
+        tarjetasHTML = '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">No hay descargas registradas en este filtro.</p>';
+    }
+
+    modsTop.forEach((mod, index) => {
+        const fotoPortada = mod.rutasImagenes && mod.rutasImagenes.length > 0 ? mod.rutasImagenes[0] : '';
+        tarjetasHTML += `<div class="card">
+            <div class="card-img-box">
+                ${fotoPortada ? `<img src="\${fotoPortada}">` : '<img src="https://icons8.com" style="width:40px;height:40px;object-fit:contain;">'}
+            </div>
+            <div class="card-content">
+                <div style="margin-bottom:10px;"><span class="top-badge">#${index + 1}</span><span class="tag-version">${mod.version}</span></div>
+                <h3><a href="/mod/${mod.id}">${mod.titulo}</a></h3>
+                <p style="margin:0 0 10px 0; color:#9ca3af; font-size:12px;">⬇️ ${mod.descargas} descargas</p>
+                <div class="card-footer">
+                    <span>por <a href="/user/${mod.autor}" class="author">@${mod.autor}</a></span>
+                    <span>⭐ ${mod.likes}</span>
+                </div>
+            </div>
+        </div>`;
+    });
+
+    let authLinks = `<a href="/login" style="color:#ced4da;text-decoration:none;font-size:14px;">Entrar</a>`;
+    if (sesionUsuario) { authLinks = `<span style="color:#9ca3af;font-size:14px;">Hola, <b>${sesionUsuario}</b></span>`; }
+
+    res.send(`<html><head><title>Top 10 Mods</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Inicio</a><a href="/top" style="color:white;border-bottom:2px solid #ff3333;padding-bottom:4px;">⭐ Top 10</a>${authLinks}</div></div><div class="main-container"><h2>🏆 Top 10 Mods más Descargados</h2><form action="/top" method="GET" style="background-color:rgba(31,35,43,0.9);padding:15px;border-radius:12px;display:flex;gap:10px;align-items:center;border:1px solid #2d3139;margin-bottom:25px;"><select name="version" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:140px;"><option value="Todas">Todas las versiones</option><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select><select name="categoria" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;width:170px;"><option value="Todas">Todas las categorías</option><option value="Personajes">👤 Personajes</option><option value="Jugabilidad">🎮 Jugabilidad</option><option value="HUD / Texturas">🎨 HUD / Texturas</option><option value="Mapas / Niveles">🗺️ Mapas / Niveles</option><option value="Scripts LUA">📜 Scripts LUA</option><option value="Otros">📦 Otros</option></select><button type="submit" class="btn-blue">Ver Ranking</button></form><div class="grid">${tarjetasHTML}</div></div></body></html>`);
+});
 app.get('/mod/:id', (req, res) => {
     const sesionUsuario = req.cookies.usuarioSesion || null;
     const mod = listaMods.find(m => m.id === parseInt(req.params.id));
@@ -160,13 +202,11 @@ app.get('/mod/:id', (req, res) => {
     
     let fotosHTML = '';
     if (mod.rutasImagenes) {
-        mod.rutasImagenes.forEach(url => { if(url) fotosHTML += `<div style="background:#1f232b;border-radius:8px;overflow:hidden;height:150px;border:1px solid #2d3139;"><img src="${url}" style="width:100%;height:100%;object-fit:cover;"></div>`; });
+        mod.rutasImagenes.forEach(url => { if(url) fotosHTML += `<div class="mod-gallery-preview"><img src="${url}"></div>`; });
     }
     let updatesHTML = '';
     if (mod.historialActualizaciones && mod.historialActualizaciones.length > 0) {
-        mod.historialActualizaciones.forEach(up => {
-            updatesHTML += `<div class="changelog-item"><b>Versión ${up.version}</b> (${up.fecha}): <br>${up.notas}</div>`;
-        });
+        mod.historialActualizaciones.forEach(up => { updatesHTML += `<div class="changelog-item"><b>Versión ${up.version}</b> (${up.fecha}): <br>${up.notas}</div>`; });
     } else { updatesHTML = '<p style="color:#9ca3af;font-size:13px;margin:0;">No hay actualizaciones registradas.</p>'; }
 
     let comentariosHTML = '';
@@ -177,7 +217,7 @@ app.get('/mod/:id', (req, res) => {
     let bEdit = (sesionUsuario === mod.autor) ? `<a href="/edit-mod/${mod.id}" class="btn-blue" style="font-size:13px;padding:6px 12px;">✏️ Editar / Actualizar</a>` : '';
     let cajaComentarios = sesionUsuario ? `<form action="/comment/${mod.id}" method="POST"><textarea name="ctext" placeholder="Escribe un comentario público..." rows="2" required></textarea><button type="submit" class="btn-blue">💬 Comentar</button></form>` : '<p><a href="/login" style="color:#ff3333;">Inicia sesión</a> para comentar.</p>';
 
-    res.send(`<html><head><title>${mod.titulo}</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Volver al Inicio</a></div></div><div class="main-container"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;"><div><h1>${mod.titulo}</h1><p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${mod.autor}" class="author">@${mod.autor}</a></p></div><div style="display:flex;gap:10px;align-items:center;"><a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar (.zip)</a>${bEdit}</div></div><div style="display:grid;grid-template-columns:2fr 1fr;gap:25px;"><div class="info-box"><h2>Descripción</h2><p>${mod.descripcion}</p><h2 style="margin-top:25px;">🖼️ Galería</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">${fotosHTML}</div></div><div><div class="info-box"><h2>Detalles Técnicos</h2><table class="meta-table"><tr><td>Versión:</td><td>${mod.version}</td></tr><tr><td>Categoría:</td><td>${mod.categoria}</td></tr><tr><td>Publicado:</td><td>${mod.fechaCreacion || 'Reciente'}</td></tr><tr><td>Peso:</td><td>${mod.pesoArchivo || 'Desconocido'}</td></tr><tr><td>Descargas:</td><td>${mod.descargas}</td></tr></table></div><div class="info-box"><h2>🔄 Historial de Cambios</h2>${updatesHTML}</div></div></div><div class="info-box" style="margin-top:25px;"><h2>💬 Comentarios</h2><div style="margin-bottom:20px;">${comentariosHTML}</div>${cajaComentarios}</div></div></body></html>`);
+    res.send(`<html><head><title>${mod.titulo}</title>${estilosCSS}</head><body><div class="navbar"><div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div><div class="nav-links"><a href="/">Volver al Inicio</a></div></div><div class="main-container"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;"><div><h1>${mod.titulo}</h1><p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${mod.autor}" class="author">@${mod.autor}</a></p></div><div style="display:flex;gap:10px;align-items:center;"><a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar (.zip)</a>${bEdit}</div></div><div style="display:grid;grid-template-columns:2fr 1fr;gap:25px;"><div class="info-box"><h2>Descripción</h2><p>${mod.descripcion}</p>${fotosHTML}</div><div><div class="info-box"><h2>Detalles Técnicos</h2><table class="meta-table"><tr><td>Versión:</td><td>${mod.version}</td></tr><tr><td>Categoría:</td><td>${mod.categoria}</td></tr><tr><td>Publicado:</td><td>${mod.fechaCreacion || 'Reciente'}</td></tr><tr><td>Peso:</td><td>${mod.pesoArchivo || 'Desconocido'}</td></tr><tr><td>Descargas:</td><td>${mod.descargas}</td></tr></table></div><div class="info-box"><h2>🔄 Historial de Cambios</h2>${updatesHTML}</div></div></div><div class="info-box" style="margin-top:25px;"><h2>💬 Comentarios</h2><div style="margin-bottom:20px;">${comentariosHTML}</div>${cajaComentarios}</div></div></body></html>`);
 });
 app.get('/user/:username', (req, res) => {
     const sesionUsuario = req.cookies.usuarioSesion || null;
@@ -201,8 +241,7 @@ app.get('/user/:username', (req, res) => {
 });
 
 app.get('/follow/:username', (req, res) => {
-    const sesionUsuario = req.cookies.usuarioSesion || null;
-    if (!sesionUsuario) return res.redirect('/login');
+    const sesionUsuario = req.cookies.usuarioSesion || null; if (!sesionUsuario) return res.redirect('/login');
     let target = listaUsuarios.find(u => u.usuario === req.params.username);
     if (!target) { target = { usuario: req.params.username, descripcion: "Creador", fechaRegistro: "2026", seguidores: [] }; listaUsuarios.push(target); }
     if (!target.seguidores) target.seguidores = [];
@@ -248,8 +287,7 @@ app.get('/publish', (req, res) => {
 });
 
 app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name: 'imagenesMod', maxCount: 4 }]), (req, res) => {
-    const sesionUsuario = req.cookies.usuarioSesion || null;
-    if (!sesionUsuario) return res.redirect('/login');
+    const sesionUsuario = req.cookies.usuarioSesion || null; if (!sesionUsuario) return res.redirect('/login');
     const arc = req.files['archivoMod'] ? req.files['archivoMod'][0] : null;
     const imgs = req.files['imagenesMod'] ? req.files['imagenesMod'] : [];
     if (!arc) return res.send('Falta el archivo comprimido .zip.');
