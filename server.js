@@ -61,11 +61,11 @@ const estilosCSS = `<style>
     }
     .navbar {
         background-color: rgba(15, 17, 21, 0.95);
-        padding: 15px 50px;
+        padding: 2px 50px;
         display: flex; justify-content: space-between; align-items: center;
         border-bottom: 3px solid #ff3333; backdrop-filter: blur(5px);
     }
-    .brand-logo { height: 180px; display: block; object-fit: contain; }
+    .brand-logo { height: 120px; display: block; object-fit: contain; }
     .nav-links { display: flex; align-items: center; gap: 20px; }
     .nav-links a { color: #ced4da; text-decoration: none; font-weight: bold; }
     .nav-links a:hover { color: white; }
