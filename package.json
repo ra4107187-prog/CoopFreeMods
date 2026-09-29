@@ -1,6 +1,14 @@
 {
+  "name": "coop-free-mods",
+  "version": "1.0.0",
+  "description": "Web de mods para SM64 Co-op",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
     "express": "^5.2.1",
-    "multer": "^2.4.0"
+    "multer": "^2.4.0",
+    "cookie-parser": "^1.4.7"
   }
 }
