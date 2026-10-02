@@ -9,6 +9,14 @@ const { estilosCSS } = require('./lib/styles');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const MODERADOR = 'SuperAaron64';
+const recentActions = new Map();
+function rateLimit(key, ms = 2000) {
+  const now = Date.now();
+  const last = recentActions.get(key) || 0;
+  if (now - last < ms) return false;
+  recentActions.set(key, now);
+  return true;
+}
 
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -85,7 +93,7 @@ function authLinks(sesion, nNotif) {
   const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
     <span style="color:#9ca3af;font-size:14px;">Hola,
-      <a href="/user/${escapeHtml(sesion.name)}" style="color:#4ade80;font-weight:bold;text-decoration:none;">${escapeHtml(sesion.name)}</a>${modBadge}
+      <a href="/user/${escapeHtml(sesion.name)}" style="color:white;font-weight:bold;text-decoration:none;">${escapeHtml(sesion.name)}</a>${modBadge}
     </span>
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
 }
@@ -97,16 +105,13 @@ function leftUserLinks(sesion, nNotif) {
     <a href="/notificaciones">🔔${badge}</a>`;
 }
 function navbar(sesion, nNotif, extra) {
+  const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   return `<div class="navbar">
-    <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
-      <div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div>
-      <div class="nav-links" style="gap:14px;">
-        ${leftUserLinks(sesion, nNotif || 0)}
-      </div>
-    </div>
+    <div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div>
     <div class="nav-links">
       <a href="/">Inicio</a>
       <a href="/top">⭐ Top 10</a>
+      ${mid}
       ${extra || ''}
       ${authLinks(sesion, nNotif || 0)}
     </div>
@@ -126,7 +131,7 @@ function renderModCards(mods, sesion) {
         <div class="card-img-box">${img}</div>
         <div class="card-content" style="padding-bottom:8px;">
           <div class="tags"><span class="tag-version">${escapeHtml(mod.version)}</span><span class="tag-category">${escapeHtml(mod.categoria)}</span></div>
-          <h3 style="color:#4ade80;margin:0 0 10px 0;">${escapeHtml(mod.titulo)}</h3>
+          <h3 style="color:white;margin:0 0 10px 0;">${escapeHtml(mod.titulo)}</h3>
           <p>${escapeHtml(mod.descripcion)}</p>
         </div>
       </a>
@@ -206,7 +211,7 @@ app.get('/top', async (req, res) => {
           <div class="card-img-box">${img}</div>
           <div class="card-content">
             <div style="margin-bottom:10px;"><span class="top-badge">#${i+1}</span><span class="tag-version">${escapeHtml(mod.version)}</span></div>
-            <h3 style="color:#4ade80;">${escapeHtml(mod.titulo)}</h3>
+            <h3 style="color:white;">${escapeHtml(mod.titulo)}</h3>
             <p style="margin:0 0 10px 0;color:#9ca3af;font-size:12px;">⬇️ ${mod.descargas} descargas</p>
           </div>
         </a>
@@ -300,13 +305,17 @@ app.get('/mod/:id', async (req, res) => {
     let comentariosHTML = roots.map(c => {
       const del = canDelComment(c) ? `<a href="/delete-comment/${mod.id}/${encodeURIComponent(c.id)}" class="btn-delete" onclick="return confirm('¿Borrar comentario?')">Eliminar</a>` : '';
       const replyForm = sesion.name && !sesion.banneado
-        ? `<form action="/reply/${mod.id}/${encodeURIComponent(c.id)}" method="POST" style="margin-top:8px;">
-            <textarea name="ctext" rows="1" placeholder="Responder..." required minlength="1" style="margin-bottom:6px;"></textarea>
-            <button type="submit" class="btn-gray">Responder</button></form>` : '';
+        ? `<details style="margin-top:8px;">
+            <summary class="btn-gray" style="display:inline-block;list-style:none;cursor:pointer;">Responder</summary>
+            <form action="/reply/${mod.id}/${encodeURIComponent(c.id)}" method="POST" style="margin-top:8px;">
+              <textarea name="ctext" rows="2" placeholder="Escribe tu respuesta..." required minlength="1" style="margin-bottom:6px;font-size:13px;"></textarea>
+              <button type="submit" class="btn-gray">Enviar respuesta</button>
+            </form>
+          </details>` : '';
       const replies = repliesOf(c.id).map(r => {
         const delR = canDelComment(r) ? `<a href="/delete-comment/${mod.id}/${encodeURIComponent(r.id)}" class="btn-delete">Eliminar</a>` : '';
-        return `<div class="comment-reply"><a href="/user/${escapeHtml(r.usuario)}" class="author">@${escapeHtml(r.usuario)}</a> ${delR}
-          <p style="margin:5px 0 0;font-size:14px;color:#ced4da;">${escapeHtml(r.texto)}</p></div>`;
+        return `<div class="comment-reply"><a href="/user/${escapeHtml(r.usuario)}" class="author" style="font-size:12px;">@${escapeHtml(r.usuario)}</a> ${delR}
+          <p style="margin:4px 0 0;font-size:12px;color:#9ca3af;">${escapeHtml(r.texto)}</p></div>`;
       }).join('');
       return `<div class="comment-box"><a href="/user/${escapeHtml(c.usuario)}" class="author">@${escapeHtml(c.usuario)}</a> ${del}
         <p style="margin:5px 0 0;font-size:14px;color:#ced4da;">${escapeHtml(c.texto)}</p>${replies}${replyForm}</div>`;
@@ -325,7 +334,7 @@ app.get('/mod/:id', async (req, res) => {
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
-          <div><h1 style="color:#4ade80;">${escapeHtml(mod.titulo)}</h1>
+          <div><h1 style="color:white;">${escapeHtml(mod.titulo)}</h1>
             <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></p></div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
@@ -389,6 +398,7 @@ app.get('/delete-comment/:modId/:commentId', async (req, res) => {
 app.post('/reply/:modId/:parentId', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  if (!rateLimit('reply:' + sesion.name + ':' + req.params.modId, 2000)) return res.redirect('/mod/' + req.params.modId);
   const modId = parseInt(req.params.modId);
   const { data } = await supabase.from('mods').select('*').eq('id', modId).single();
   if (!data) return res.redirect('/');
@@ -436,7 +446,7 @@ app.get('/user/:username', async (req, res) => {
       <div class="main-container">
         <div class="profile-header">
           <div>
-            <h1 style="margin:0;color:#4ade80;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}</h1>
+            <h1 style="margin:0;color:white;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}</h1>
             <p style="color:#ced4da;margin:10px 0;">${escapeHtml(user.descripcion)}</p>
             <p style="color:#9ca3af;font-size:12px;margin:0;">Desde: ${escapeHtml(user.fechaRegistro)} · 👥 ${(user.seguidores||[]).length} seguidores</p>
           </div>
@@ -505,6 +515,7 @@ app.get('/publish', async (req, res) => {
 app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name: 'imagenesMod', maxCount: 4 }]), async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  if (!rateLimit('publish:' + sesion.name, 3000)) return res.send('Espera un momento antes de publicar de nuevo. <a href="/publish">Volver</a>');
   try {
     const arc = req.files['archivoMod'] && req.files['archivoMod'][0];
     const imgs = req.files['imagenesMod'] || [];
@@ -605,6 +616,7 @@ app.get('/like/:id', async (req, res) => {
 app.post('/comment/:id', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  if (!rateLimit('comment:' + sesion.name + ':' + req.params.id, 2000)) return res.redirect('/mod/' + req.params.id);
   const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
   if (data) {
     const comentarios = data.comentarios || [];
