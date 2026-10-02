@@ -82,20 +82,28 @@ function authLinks(sesion, nNotif) {
     return `<a href="/login" style="color:#ced4da;text-decoration:none;font-size:14px;">Entrar</a>
     <a href="/register" class="btn-red">Registrarse</a>`;
   }
-  const badge = nNotif > 0 ? `<span class="notif-badge">${nNotif}</span>` : '';
   const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
-    <a href="/mis-mods">Mis mods</a>
-    <a href="/favoritos">Favoritos</a>
-    <a href="/notificaciones">🔔${badge}</a>
     <span style="color:#9ca3af;font-size:14px;">Hola,
       <a href="/user/${escapeHtml(sesion.name)}" style="color:#4ade80;font-weight:bold;text-decoration:none;">${escapeHtml(sesion.name)}</a>${modBadge}
     </span>
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
 }
+function leftUserLinks(sesion, nNotif) {
+  if (!sesion.name) return '';
+  const badge = nNotif > 0 ? `<span class="notif-badge">${nNotif}</span>` : '';
+  return `<a href="/mis-mods">Mis mods</a>
+    <a href="/favoritos">Favoritos</a>
+    <a href="/notificaciones">🔔${badge}</a>`;
+}
 function navbar(sesion, nNotif, extra) {
   return `<div class="navbar">
-    <div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div>
+    <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+      <div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div>
+      <div class="nav-links" style="gap:14px;">
+        ${leftUserLinks(sesion, nNotif || 0)}
+      </div>
+    </div>
     <div class="nav-links">
       <a href="/">Inicio</a>
       <a href="/top">⭐ Top 10</a>
@@ -152,14 +160,14 @@ app.get('/', async (req, res) => {
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
-        <form action="/" method="GET" style="background-color:rgba(31,35,43,0.9);padding:15px;border-radius:12px;display:flex;gap:10px;align-items:center;border:1px solid #2d3139;margin-bottom:25px;flex-wrap:wrap;">
-          <input type="text" name="buscar" placeholder="Buscar mods..." style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;flex:1;min-width:150px;" value="${escapeHtml(req.query.buscar || '')}">
-          <select name="version" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;">
+        <form action="/" method="GET" class="filter-bar">
+          <input type="text" name="buscar" placeholder="Buscar mods..." value="${escapeHtml(req.query.buscar || '')}">
+          <select name="version">
             <option value="Todas">Todas las versiones</option>
             <option value="SM64 Co-op DX" ${buscarVersion==='SM64 Co-op DX'?'selected':''}>SM64 Co-op DX</option>
             <option value="SM64 EX Co-op" ${buscarVersion==='SM64 EX Co-op'?'selected':''}>SM64 EX Co-op</option>
           </select>
-          <select name="categoria" style="background:#161920;border:1px solid #374151;color:white;padding:8px 12px;border-radius:6px;">
+          <select name="categoria">
             <option value="Todas">Todas las categorías</option>
             <option value="Personajes" ${buscarCategoria==='Personajes'?'selected':''}>Personajes</option>
             <option value="Jugabilidad" ${buscarCategoria==='Jugabilidad'?'selected':''}>Jugabilidad</option>
@@ -193,16 +201,44 @@ app.get('/top', async (req, res) => {
     let tarjetas = mods.map((mod, i) => {
       const foto = mod.rutasImagenes && mod.rutasImagenes[0];
       const img = foto ? `<img src="${escapeHtml(foto)}">` : '<div style="color:#555;font-size:40px;">📦</div>';
-      return `<div class="card"><div class="card-img-box">${img}</div><div class="card-content">
-        <div style="margin-bottom:10px;"><span class="top-badge">#${i+1}</span><span class="tag-version">${escapeHtml(mod.version)}</span></div>
-        <h3><a href="/mod/${mod.id}">${escapeHtml(mod.titulo)}</a></h3>
-        <p style="margin:0 0 10px 0;color:#9ca3af;font-size:12px;">⬇️ ${mod.descargas} descargas</p>
-        <div class="card-footer"><span>por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></span><span>⭐ ${mod.likes}</span></div>
-      </div></div>`;
+      return `<div class="card" style="position:relative;">
+        <a href="/mod/${mod.id}" style="text-decoration:none;color:inherit;display:block;flex:1;">
+          <div class="card-img-box">${img}</div>
+          <div class="card-content">
+            <div style="margin-bottom:10px;"><span class="top-badge">#${i+1}</span><span class="tag-version">${escapeHtml(mod.version)}</span></div>
+            <h3 style="color:#4ade80;">${escapeHtml(mod.titulo)}</h3>
+            <p style="margin:0 0 10px 0;color:#9ca3af;font-size:12px;">⬇️ ${mod.descargas} descargas</p>
+          </div>
+        </a>
+        <div class="card-footer" style="padding:12px 15px;margin:0;">
+          <span>por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></span>
+          <span>⭐ ${mod.likes}</span>
+        </div>
+      </div>`;
     }).join('') || '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">Sin datos.</p>';
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Top 10</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
-      <div class="main-container"><h2>🏆 Top 10 Mods más Descargados</h2><div class="grid">${tarjetas}</div></div>
+      <div class="main-container">
+        <h2>🏆 Top 10 Mods más Descargados</h2>
+        <form action="/top" method="GET" class="filter-bar">
+          <select name="version">
+            <option value="Todas">Todas las versiones</option>
+            <option value="SM64 Co-op DX" ${buscarVersion==='SM64 Co-op DX'?'selected':''}>SM64 Co-op DX</option>
+            <option value="SM64 EX Co-op" ${buscarVersion==='SM64 EX Co-op'?'selected':''}>SM64 EX Co-op</option>
+          </select>
+          <select name="categoria">
+            <option value="Todas">Todas las categorías</option>
+            <option value="Personajes" ${buscarCategoria==='Personajes'?'selected':''}>Personajes</option>
+            <option value="Jugabilidad" ${buscarCategoria==='Jugabilidad'?'selected':''}>Jugabilidad</option>
+            <option value="HUD / Texturas" ${buscarCategoria==='HUD / Texturas'?'selected':''}>HUD / Texturas</option>
+            <option value="Mapas / Niveles" ${buscarCategoria==='Mapas / Niveles'?'selected':''}>Mapas / Niveles</option>
+            <option value="Scripts LUA" ${buscarCategoria==='Scripts LUA'?'selected':''}>Scripts LUA</option>
+            <option value="Otros" ${buscarCategoria==='Otros'?'selected':''}>Otros</option>
+          </select>
+          <button type="submit" class="btn-blue">Filtrar</button>
+        </form>
+        <div class="grid">${tarjetas}</div>
+      </div>
     </body></html>`);
   } catch (e) { console.error(e); res.status(500).send('Error'); }
 });
@@ -292,7 +328,9 @@ app.get('/mod/:id', async (req, res) => {
           <div><h1 style="color:#4ade80;">${escapeHtml(mod.titulo)}</h1>
             <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></p></div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-            <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>${bEdit}${bDel}
+            <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
+            <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:16px;padding:10px 16px;background:#1f2937;border-radius:8px;border:1px solid #374151;">⭐ ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
+            ${bEdit}${bDel}
           </div>
         </div>
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:25px;">
