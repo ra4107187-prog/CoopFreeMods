@@ -1001,7 +1001,13 @@ app.get('/foros/tema/:id', async (req, res) => {
     const id = parseInt(req.params.id);
     const { data: tema, error } = await supabase.from('foro_temas').select('*').eq('id', id).single();
     if (error || !tema) return res.status(404).send('Tema no encontrado. <a href="/foros">Foros</a>');
-    await supabase.from('foro_temas').update({ vistas: (tema.vistas || 0) + 1 }).eq('id', id);
+    // Contar visita 1 vez por sesión (cookie)
+    const seenKey = 'foro_visto_' + id;
+    if (!req.cookies || !req.cookies[seenKey]) {
+      await supabase.from('foro_temas').update({ vistas: (tema.vistas || 0) + 1 }).eq('id', id);
+      tema.vistas = (tema.vistas || 0) + 1;
+      res.cookie(seenKey, '1', { maxAge: 1000 * 60 * 60 * 12, httpOnly: true, sameSite: 'lax' });
+    }
     const { data: respuestas } = await supabase.from('foro_respuestas').select('*').eq('tema_id', id).order('created_at', { ascending: true });
     const canMod = sesion.esMod;
     const canDelTema = sesion.name === tema.autor || canMod;
