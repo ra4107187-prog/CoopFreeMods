@@ -125,10 +125,10 @@ function authLinks(sesion, nNotif) {
 }
 function leftUserLinks(sesion, nNotif) {
   if (!sesion.name) return '';
-  const badge = nNotif > 0 ? `<span class="notif-badge">${nNotif}</span>` : '';
+  const dot = nNotif > 0 ? `<span class="notif-dot"></span>` : '';
   return `<a href="/mis-mods">Mis mods</a>
     <a href="/favoritos">Favoritos</a>
-    <a href="/notificaciones">🔔${badge}</a>`;
+    <a href="/notificaciones" class="notif-bell" title="${nNotif > 0 ? nNotif + ' sin leer' : 'Notificaciones'}">🔔${dot}</a>`;
 }
 function navbar(sesion, nNotif, extra) {
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
@@ -492,7 +492,7 @@ app.get('/user/:username', async (req, res) => {
           <div>
             <h1 style="margin:0;color:white;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}</h1>
             <p style="color:#ced4da;margin:10px 0;">${escapeHtml(user.descripcion)}</p>
-            <p style="color:#9ca3af;font-size:12px;margin:0;">Desde: ${escapeHtml(user.fechaRegistro)} · 👥 ${(user.seguidores||[]).length} seguidores</p>
+            <p style="color:#9ca3af;font-size:12px;margin:0;">Desde el ${escapeHtml(user.fechaRegistro)} · 👥 ${(user.seguidores||[]).length} seguidores</p>
           </div>
           <div style="display:flex;gap:10px;">${bFollow}${bMod}</div>
         </div>
@@ -521,13 +521,23 @@ app.get('/follow/:username', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name) return res.redirect('/login');
   const targetName = req.params.username;
+  if (targetName === sesion.name) return res.redirect('/user/' + targetName);
   let { data: target } = await supabase.from('usuarios').select('*').eq('usuario', targetName).single();
   if (!target) {
-    await supabase.from('usuarios').insert({ usuario: targetName, password: '!', descripcion: 'Creador', fecha_registro: '2026', seguidores: [sesion.name] });
+    await supabase.from('usuarios').insert({
+      usuario: targetName, password: '!', descripcion: 'Creador',
+      fecha_registro: new Date().toLocaleDateString('es-ES'), seguidores: [sesion.name]
+    });
+    await crearNotif(targetName, 'seguidor', `@${sesion.name} empezó a seguirte`, `/user/${sesion.name}`);
   } else {
     let seg = target.seguidores || [];
     const idx = seg.indexOf(sesion.name);
-    if (idx === -1) seg.push(sesion.name); else seg.splice(idx, 1);
+    if (idx === -1) {
+      seg.push(sesion.name);
+      await crearNotif(targetName, 'seguidor', `@${sesion.name} empezó a seguirte`, `/user/${sesion.name}`);
+    } else {
+      seg.splice(idx, 1);
+    }
     await supabase.from('usuarios').update({ seguidores: seg }).eq('usuario', targetName);
   }
   res.redirect('/user/' + targetName);
@@ -707,7 +717,7 @@ app.post('/register', async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const { error } = await supabase.from('usuarios').insert({
       usuario, password: hash, descripcion: req.body.descripcion || 'Desarrollador',
-      fecha_registro: new Date().getFullYear().toString(), seguidores: [], banneado: false
+      fecha_registro: new Date().toLocaleDateString('es-ES'), seguidores: [], banneado: false
     });
     if (error) throw error;
     res.cookie('usuarioSesion', usuario, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 });
