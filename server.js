@@ -137,6 +137,8 @@ function navbar(sesion, nNotif, extra) {
     <div class="nav-links">
       <a href="/">Inicio</a>
       <a href="/top">⭐ Top 10</a>
+      <a href="/foros">💬 Foros</a>
+      <a href="/como-instalar">📖 Cómo instalar</a>
       ${mid}
       ${extra || ''}
       ${authLinks(sesion, nNotif || 0)}
@@ -758,7 +760,360 @@ app.post('/login', async (req, res) => {
   } catch (e) { res.send('Error. <a href="/login">Volver</a>'); }
 });
 
+
+app.get('/info-disabled', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="icon" href="/public/icon.png" type="image/png"><title>Información — Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:800px;">
+      <h1 style="color:white;margin-bottom:8px;">ℹ️ Sobre Coop Free Mods</h1>
+      <p style="color:#9ca3af;margin-bottom:28px;">Mods gratis para SM64 Co-op DX, SM64 EX Co-op y DX + EX.</p>
+
+      <div class="info-box">
+        <h2>¿Qué es esto?</h2>
+        <p>Coop Free Mods es una biblioteca comunitaria donde podés <b>buscar, descargar y publicar</b> mods para Super Mario 64 Co-op (DX y EX). Registro gratis, likes, comentarios, favoritos y perfiles de creadores.</p>
+      </div>
+
+      <div class="info-box">
+        <h2>Origen del proyecto</h2>
+        <p>El proyecto fue <b>iniciado por @Ellos (them)</b>. Más adelante se discontinuó el hosting original (túnel Cloudflare) y se dejó continuar a la comunidad.</p>
+        <p>Esta versión mantiene la idea original y suma persistencia en la nube (Vercel + Supabase), notificaciones, moderación, paginación y más herramientas para la comunidad.</p>
+      </div>
+
+      <div class="info-box">
+        <h2>Versiones soportadas</h2>
+        <p>• <b>SM64 Co-op DX</b><br>
+        • <b>SM64 EX Co-op</b><br>
+        • <b>DX + EX</b> (compatible con ambas)</p>
+      </div>
+
+      <div class="info-box">
+        <h2>Categorías</h2>
+        <p>Character Select · Dynos · Hangouts / Romhack · Gamemodes · Movesets · Modifiers · Administrative / Utility · Resources · Otros</p>
+      </div>
+
+      <div class="info-box">
+        <h2>Cómo publicar</h2>
+        <p>1. Registrate o iniciá sesión<br>
+        2. Tocá <b>+ Publicar mod</b><br>
+        3. Completá nombre, versión, categoría y descripción<br>
+        4. Subí el archivo (.zip / .lua, máx. 10 MB) y capturas opcionales<br>
+        5. Publicá — el mod queda guardado de forma permanente</p>
+      </div>
+
+      <div class="info-box">
+        <h2>Reglas básicas</h2>
+        <p>• No subas contenido malicioso ni spam<br>
+        • Respetá a otros usuarios en comentarios<br>
+        • Los mods deben ser relevantes para SM64 Co-op<br>
+        • Un moderador puede eliminar contenido o banear cuentas que rompan las reglas</p>
+      </div>
+
+      <div class="info-box">
+        <h2>Créditos</h2>
+        <p>💡 Idea y versión original: <a href="/user/Ellos" class="author">@Ellos (them)</a><br>
+        🛠️ Continuación y mejoras: comunidad · SuperAaron64 y colaboradores<br>
+        ☁️ Hosting actual: Vercel + Supabase</p>
+      </div>
+
+      <p style="text-align:center;margin:30px 0;">
+        <a href="/" class="btn-red">Volver al inicio</a>
+        <a href="/register" class="btn-blue" style="margin-left:10px;">Crear cuenta</a>
+      </p>
+    </div>
+  </body></html>`);
+});
+
+
+
+app.get('/como-instalar', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="icon" href="/public/icon.png" type="image/png"><title>Cómo instalar — Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:800px;">
+      <h1 style="color:white;margin-bottom:8px;">📖 Cómo instalar mods</h1>
+      <p style="color:#9ca3af;margin-bottom:28px;">Guía rápida para usar los mods de SM64 Co-op DX y SM64 EX Co-op.</p>
+
+      <div class="info-box">
+        <h2>1. Tené el juego base</h2>
+        <p>Necesitás <b>SM64 Co-op DX</b> o <b>SM64 EX Co-op</b> ya instalado y funcionando en tu PC.</p>
+        <p>Si aún no lo tenés, buscá la versión oficial de la comunidad (Discord / GitHub del proyecto co-op).</p>
+      </div>
+
+      <div class="info-box">
+        <h2>2. Descargá el mod desde esta web</h2>
+        <p>1. Entrá a un mod desde el inicio o el Top 10<br>
+        2. Tocá el botón rojo <b>⬇️ Descargar</b><br>
+        3. Guardá el archivo <b>.zip</b> (o .lua) en una carpeta que recuerdes</p>
+      </div>
+
+      <div class="info-box">
+        <h2>3. Instalación típica (archivo .zip)</h2>
+        <p>1. Descomprimí el .zip (clic derecho → Extraer)<br>
+        2. Abrí la carpeta del juego Co-op (donde está el ejecutable)<br>
+        3. Buscá la carpeta de mods (suele llamarse <b>mods</b>, <b>dynos</b> o similar según el tipo)<br>
+        4. Copiá ahí la carpeta o los archivos del mod<br>
+        5. Reiniciá el juego si ya estaba abierto</p>
+        <p style="color:#9ca3af;font-size:13px;margin-top:12px;">Cada mod puede traer un README con pasos exactos. Leelo si viene incluido.</p>
+      </div>
+
+      <div class="info-box">
+        <h2>4. Según el tipo de mod</h2>
+        <p>• <b>Character Select / Dynos</b> — suelen ir en carpetas de personajes o dynos<br>
+        • <b>Movesets / Modifiers / Gamemodes</b> — a menudo en mods o scripts<br>
+        • <b>Resources</b> — scripts LUA u otros recursos<br>
+        • <b>Hangouts / Romhack</b> — pueden requerir pasos extra (leé la descripción del mod)</p>
+      </div>
+
+      <div class="info-box">
+        <h2>5. Problemas frecuentes</h2>
+        <p>• <b>No aparece el mod</b> — revisá que esté en la carpeta correcta y reiniciá el juego<br>
+        • <b>El juego crashea</b> — probá sin otros mods, o mirá si es solo DX / solo EX / DX+EX<br>
+        • <b>Archivo dañado</b> — volvé a descargarlo desde la web<br>
+        • <b>Duda con un mod concreto</b> — comentá en la página del mod o preguntá en Discord</p>
+      </div>
+
+      <div class="info-box">
+        <h2>Consejo</h2>
+        <p>En la ficha de cada mod mirá <b>Versión</b> (DX, EX o DX + EX) y <b>Categoría</b> para saber si es compatible con tu juego y dónde va el archivo.</p>
+      </div>
+
+      <p style="text-align:center;margin:30px 0;">
+        <a href="/" class="btn-red">Ver mods</a>
+        <a href="/top" class="btn-blue" style="margin-left:10px;">Top 10</a>
+      </p>
+    </div>
+  </body></html>`);
+});
+
+
 app.get('/logout', (req, res) => { res.clearCookie('usuarioSesion'); res.redirect('/'); });
+
+
+// ---------- FOROS ----------
+const FORO_CATEGORIAS = ['General','Mods y ayuda','Character Select','Dynos','Hangouts / Romhack','Gamemodes','Sugerencias','Off-topic'];
+
+app.get('/foros', async (req, res) => {
+  try {
+    const sesion = await getSesion(req);
+    const nNotif = await countNotif(sesion.name);
+    const cat = req.query.categoria || 'Todas';
+    let q = supabase.from('foro_temas').select('*').order('fijado', { ascending: false }).order('updated_at', { ascending: false }).limit(100);
+    if (cat !== 'Todas') q = q.eq('categoria', cat);
+    const { data, error } = await q;
+    if (error) throw error;
+    const temas = data || [];
+    // count replies
+    const ids = temas.map(x => x.id);
+    let counts = {};
+    if (ids.length) {
+      const { data: reps } = await supabase.from('foro_respuestas').select('tema_id').in('tema_id', ids);
+      (reps || []).forEach(r => { counts[r.tema_id] = (counts[r.tema_id] || 0) + 1; });
+    }
+    const catOpts = ['Todas', ...FORO_CATEGORIAS].map(c =>
+      `<option value="${escapeHtml(c)}" ${cat===c?'selected':''}>${escapeHtml(c)}</option>`
+    ).join('');
+    const rows = temas.map(tm => {
+      const n = counts[tm.id] || 0;
+      const pin = tm.fijado ? '📌 ' : '';
+      const closed = tm.cerrado ? '🔒 ' : '';
+      const fecha = tm.updated_at ? new Date(tm.updated_at).toLocaleDateString('es-ES') : '';
+      return `<a href="/foros/tema/${tm.id}" style="display:block;text-decoration:none;color:inherit;">
+        <div class="comment-box" style="display:flex;justify-content:space-between;align-items:center;gap:12px;transition:transform 0.15s;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:bold;color:white;margin-bottom:4px;">${pin}${closed}${escapeHtml(tm.titulo)}</div>
+            <div style="font-size:12px;color:#9ca3af;">
+              <span class="tag-category">${escapeHtml(tm.categoria)}</span>
+              · por <span class="author">@${escapeHtml(tm.autor)}</span>
+              · ${fecha}
+            </div>
+          </div>
+          <div style="text-align:right;font-size:12px;color:#9ca3af;white-space:nowrap;">
+            💬 ${n}<br>👁 ${tm.vistas || 0}
+          </div>
+        </div>
+      </a>`;
+    }).join('') || '<p style="color:#9ca3af;text-align:center;padding:40px;">No hay temas todavía. ¡Sé el primero!</p>';
+    const newBtn = sesion.name && !sesion.banneado
+      ? `<a href="/foros/nuevo" class="btn-red">+ Nuevo tema</a>`
+      : `<a href="/login" class="btn-red">Entrar para publicar</a>`;
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="icon" href="/public/icon.png" type="image/png"><title>Foros — Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+          <h2 style="margin:0;">💬 Foros de la comunidad</h2>
+          ${newBtn}
+        </div>
+        <form method="GET" action="/foros" class="filter-bar" style="margin-bottom:20px;">
+          <select name="categoria">${catOpts}</select>
+          <button type="submit" class="btn-blue">Filtrar</button>
+        </form>
+        ${rows}
+      </div>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error en foros. ¿Ejecutaste el SQL de foros en Supabase? <a href="/">Inicio</a>');
+  }
+});
+
+app.get('/foros/nuevo', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  if (sesion.banneado) return res.send('Cuenta baneada.');
+  const nNotif = await countNotif(sesion.name);
+  const opts = FORO_CATEGORIAS.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="icon" href="/public/icon.png" type="image/png"><title>Nuevo tema</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="form-box"><h2>✏️ Nuevo tema</h2>
+      <form action="/foros/nuevo" method="POST">
+        <label>Título:</label><input type="text" name="titulo" required maxlength="120" minlength="3">
+        <label>Categoría:</label><select name="categoria">${opts}</select>
+        <label>Mensaje:</label><textarea name="contenido" rows="6" required minlength="3"></textarea>
+        <button type="submit" class="btn-red" style="width:100%;">Publicar tema</button>
+      </form>
+      <p style="text-align:center;margin-top:12px;"><a href="/foros" style="color:#93c5fd;">← Volver a foros</a></p>
+    </div>
+  </body></html>`);
+});
+
+app.post('/foros/nuevo', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  if (!rateLimit('foro-nuevo:' + sesion.name, 5000)) return res.send('Espera un momento. <a href="/foros">Volver</a>');
+  const titulo = (req.body.titulo || '').trim();
+  const contenido = (req.body.contenido || '').trim();
+  const categoria = FORO_CATEGORIAS.includes(req.body.categoria) ? req.body.categoria : 'General';
+  if (titulo.length < 3 || contenido.length < 3) return res.send('Título y mensaje muy cortos. <a href="/foros/nuevo">Volver</a>');
+  const { data, error } = await supabase.from('foro_temas').insert({
+    titulo, contenido, autor: sesion.name, categoria, vistas: 0
+  }).select('id').single();
+  if (error) { console.error(error); return res.status(500).send('Error al crear tema.'); }
+  res.redirect('/foros/tema/' + data.id);
+});
+
+app.get('/foros/tema/:id', async (req, res) => {
+  try {
+    const sesion = await getSesion(req);
+    const nNotif = await countNotif(sesion.name);
+    const id = parseInt(req.params.id);
+    const { data: tema, error } = await supabase.from('foro_temas').select('*').eq('id', id).single();
+    if (error || !tema) return res.status(404).send('Tema no encontrado. <a href="/foros">Foros</a>');
+    await supabase.from('foro_temas').update({ vistas: (tema.vistas || 0) + 1 }).eq('id', id);
+    const { data: respuestas } = await supabase.from('foro_respuestas').select('*').eq('tema_id', id).order('created_at', { ascending: true });
+    const canMod = sesion.esMod;
+    const canDelTema = sesion.name === tema.autor || canMod;
+    let modBtns = '';
+    if (canMod) {
+      modBtns += `<a href="/foros/pin/${id}" class="btn-gray">${tema.fijado ? 'Desfijar' : 'Fijar'}</a> `;
+      modBtns += `<a href="/foros/cerrar/${id}" class="btn-gray">${tema.cerrado ? 'Abrir' : 'Cerrar'}</a> `;
+    }
+    if (canDelTema) modBtns += `<a href="/foros/borrar-tema/${id}" class="btn-delete" onclick="return confirm('¿Borrar tema y respuestas?')">Eliminar tema</a>`;
+    const fecha = tema.created_at ? new Date(tema.created_at).toLocaleString('es-ES') : '';
+    const repsHtml = (respuestas || []).map(r => {
+      const canDel = sesion.name === r.autor || canMod;
+      const del = canDel ? `<a href="/foros/borrar-resp/${r.id}?tema=${id}" class="btn-delete" style="float:right;">Eliminar</a>` : '';
+      const rf = r.created_at ? new Date(r.created_at).toLocaleString('es-ES') : '';
+      return `<div class="comment-box">
+        ${del}
+        <a href="/user/${escapeHtml(r.autor)}" class="author">@${escapeHtml(r.autor)}</a>
+        <span style="font-size:11px;color:#6b7280;margin-left:8px;">${rf}</span>
+        <p style="margin:8px 0 0;color:#ced4da;white-space:pre-wrap;">${escapeHtml(r.contenido)}</p>
+      </div>`;
+    }).join('') || '<p style="color:#9ca3af;">No hay respuestas aún.</p>';
+    let replyBox = '';
+    if (tema.cerrado) replyBox = '<p style="color:#f87171;">Este tema está cerrado.</p>';
+    else if (sesion.name && !sesion.banneado) {
+      replyBox = `<form action="/foros/responder/${id}" method="POST">
+        <textarea name="contenido" rows="3" required minlength="1" placeholder="Escribe una respuesta..."></textarea>
+        <button type="submit" class="btn-blue">Responder</button>
+      </form>`;
+    } else replyBox = '<p><a href="/login" style="color:#ff3333;">Inicia sesión</a> para responder.</p>';
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(tema.titulo)}</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <p><a href="/foros" style="color:#93c5fd;">← Foros</a></p>
+        <div class="info-box">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <span class="tag-category">${escapeHtml(tema.categoria)}</span>
+              ${tema.fijado ? '<span class="top-badge">Fijado</span>' : ''}
+              ${tema.cerrado ? '<span class="banned-badge">Cerrado</span>' : ''}
+              <h1 style="color:white;margin:10px 0;">${escapeHtml(tema.titulo)}</h1>
+              <p style="color:#9ca3af;font-size:13px;margin:0;">por <a href="/user/${escapeHtml(tema.autor)}" class="author">@${escapeHtml(tema.autor)}</a> · ${fecha} · 👁 ${(tema.vistas||0)+1}</p>
+            </div>
+            <div>${modBtns}</div>
+          </div>
+          <p style="margin-top:16px;color:#ced4da;white-space:pre-wrap;">${escapeHtml(tema.contenido)}</p>
+        </div>
+        <div class="info-box"><h2>Respuestas (${(respuestas||[]).length})</h2>${repsHtml}</div>
+        <div class="info-box"><h2>Responder</h2>${replyBox}</div>
+      </div>
+    </body></html>`);
+  } catch (e) { console.error(e); res.status(500).send('Error'); }
+});
+
+app.post('/foros/responder/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  const id = parseInt(req.params.id);
+  if (!rateLimit('foro-resp:' + sesion.name + ':' + id, 2500)) return res.redirect('/foros/tema/' + id);
+  const contenido = (req.body.contenido || '').trim();
+  if (!contenido) return res.redirect('/foros/tema/' + id);
+  const { data: tema } = await supabase.from('foro_temas').select('*').eq('id', id).single();
+  if (!tema || tema.cerrado) return res.redirect('/foros/tema/' + id);
+  await supabase.from('foro_respuestas').insert({ tema_id: id, autor: sesion.name, contenido });
+  await supabase.from('foro_temas').update({ updated_at: new Date().toISOString() }).eq('id', id);
+  if (tema.autor !== sesion.name) {
+    await crearNotif(tema.autor, 'foro', `@${sesion.name} respondió en "${tema.titulo}"`, `/foros/tema/${id}`);
+  }
+  res.redirect('/foros/tema/' + id);
+});
+
+app.get('/foros/borrar-tema/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const id = parseInt(req.params.id);
+  const { data: tema } = await supabase.from('foro_temas').select('*').eq('id', id).single();
+  if (!tema) return res.redirect('/foros');
+  if (tema.autor !== sesion.name && !sesion.esMod) return res.send('Sin permisos.');
+  await supabase.from('foro_respuestas').delete().eq('tema_id', id);
+  await supabase.from('foro_temas').delete().eq('id', id);
+  res.redirect('/foros');
+});
+
+app.get('/foros/borrar-resp/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const id = parseInt(req.params.id);
+  const temaId = req.query.tema;
+  const { data: r } = await supabase.from('foro_respuestas').select('*').eq('id', id).single();
+  if (!r) return res.redirect('/foros');
+  if (r.autor !== sesion.name && !sesion.esMod) return res.send('Sin permisos.');
+  await supabase.from('foro_respuestas').delete().eq('id', id);
+  res.redirect('/foros/tema/' + (temaId || r.tema_id));
+});
+
+app.get('/foros/pin/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.esMod) return res.send('Solo moderadores.');
+  const id = parseInt(req.params.id);
+  const { data: tema } = await supabase.from('foro_temas').select('fijado').eq('id', id).single();
+  if (tema) await supabase.from('foro_temas').update({ fijado: !tema.fijado }).eq('id', id);
+  res.redirect('/foros/tema/' + id);
+});
+
+app.get('/foros/cerrar/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.esMod) return res.send('Solo moderadores.');
+  const id = parseInt(req.params.id);
+  const { data: tema } = await supabase.from('foro_temas').select('cerrado').eq('id', id).single();
+  if (tema) await supabase.from('foro_temas').update({ cerrado: !tema.cerrado }).eq('id', id);
+  res.redirect('/foros/tema/' + id);
+});
+
 
 module.exports = app;
 if (require.main === module) {
