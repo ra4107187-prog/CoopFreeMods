@@ -1012,17 +1012,35 @@ app.get('/foros/tema/:id', async (req, res) => {
     }
     if (canDelTema) modBtns += `<a href="/foros/borrar-tema/${id}" class="btn-delete" onclick="return confirm('¿Borrar tema y respuestas?')">Eliminar tema</a>`;
     const fecha = tema.created_at ? new Date(tema.created_at).toLocaleString('es-ES') : '';
-    const repsHtml = (respuestas || []).map(r => {
+    const allR = respuestas || [];
+    const roots = allR.filter(r => !r.parent_id);
+    const childrenOf = (pid) => allR.filter(r => r.parent_id === pid);
+    const renderResp = (r, isChild) => {
       const canDel = sesion.name === r.autor || canMod;
       const del = canDel ? `<a href="/foros/borrar-resp/${r.id}?tema=${id}" class="btn-delete" style="float:right;">Eliminar</a>` : '';
       const rf = r.created_at ? new Date(r.created_at).toLocaleString('es-ES') : '';
-      return `<div class="comment-box">
+      const subReply = (sesion.name && !sesion.banneado && !tema.cerrado)
+        ? `<details style="margin-top:8px;">
+            <summary class="btn-gray" style="display:inline-block;cursor:pointer;list-style:none;font-size:12px;">Responder</summary>
+            <form action="/foros/responder/${id}" method="POST" style="margin-top:8px;">
+              <input type="hidden" name="parent_id" value="${r.id}">
+              <textarea name="contenido" rows="2" required minlength="1" placeholder="Escribe una respuesta..." style="font-size:13px;margin-bottom:6px;"></textarea>
+              <button type="submit" class="btn-gray">Enviar</button>
+            </form>
+          </details>` : '';
+      const kids = childrenOf(r.id).map(c => renderResp(c, true)).join('');
+      const boxClass = isChild ? 'comment-reply' : 'comment-box';
+      const font = isChild ? 'font-size:12px;color:#9ca3af;' : 'color:#ced4da;';
+      return `<div class="${boxClass}">
         ${del}
-        <a href="/user/${escapeHtml(r.autor)}" class="author">@${escapeHtml(r.autor)}</a>
+        <a href="/user/${escapeHtml(r.autor)}" class="author" style="${isChild ? 'font-size:12px;' : ''}">@${escapeHtml(r.autor)}</a>
         <span style="font-size:11px;color:#6b7280;margin-left:8px;">${rf}</span>
-        <p style="margin:8px 0 0;color:#ced4da;white-space:pre-wrap;">${escapeHtml(r.contenido)}</p>
+        <p style="margin:8px 0 0;white-space:pre-wrap;${font}">${escapeHtml(r.contenido)}</p>
+        ${subReply}
+        ${kids}
       </div>`;
-    }).join('') || '<p style="color:#9ca3af;">No hay respuestas aún.</p>';
+    };
+    const repsHtml = roots.map(r => renderResp(r, false)).join('') || '<p style="color:#9ca3af;">No hay respuestas aún.</p>';
     let replyBox = '';
     if (tema.cerrado) replyBox = '<p style="color:#f87171;">Este tema está cerrado.</p>';
     else if (sesion.name && !sesion.banneado) {
@@ -1064,10 +1082,20 @@ app.post('/foros/responder/:id', async (req, res) => {
   if (!contenido) return res.redirect('/foros/tema/' + id);
   const { data: tema } = await supabase.from('foro_temas').select('*').eq('id', id).single();
   if (!tema || tema.cerrado) return res.redirect('/foros/tema/' + id);
-  await supabase.from('foro_respuestas').insert({ tema_id: id, autor: sesion.name, contenido });
+  let parentId = req.body.parent_id ? parseInt(req.body.parent_id) : null;
+  if (parentId && isNaN(parentId)) parentId = null;
+  const row = { tema_id: id, autor: sesion.name, contenido };
+  if (parentId) row.parent_id = parentId;
+  await supabase.from('foro_respuestas').insert(row);
   await supabase.from('foro_temas').update({ updated_at: new Date().toISOString() }).eq('id', id);
   if (tema.autor !== sesion.name) {
     await crearNotif(tema.autor, 'foro', `@${sesion.name} respondió en "${tema.titulo}"`, `/foros/tema/${id}`);
+  }
+  if (parentId) {
+    const { data: parent } = await supabase.from('foro_respuestas').select('autor').eq('id', parentId).single();
+    if (parent && parent.autor !== sesion.name && parent.autor !== tema.autor) {
+      await crearNotif(parent.autor, 'foro', `@${sesion.name} respondió a tu mensaje en "${tema.titulo}"`, `/foros/tema/${id}`);
+    }
   }
   res.redirect('/foros/tema/' + id);
 });
