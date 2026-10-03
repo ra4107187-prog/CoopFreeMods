@@ -198,14 +198,18 @@ app.get('/', async (req, res) => {
             <option value="Todas">Todas las versiones</option>
             <option value="SM64 Co-op DX" ${buscarVersion==='SM64 Co-op DX'?'selected':''}>SM64 Co-op DX</option>
             <option value="SM64 EX Co-op" ${buscarVersion==='SM64 EX Co-op'?'selected':''}>SM64 EX Co-op</option>
+            <option value="DX + EX" ${buscarVersion==='DX + EX'?'selected':''}>DX + EX</option>
           </select>
           <select name="categoria">
             <option value="Todas">Todas las categorías</option>
-            <option value="Personajes" ${buscarCategoria==='Personajes'?'selected':''}>Personajes</option>
-            <option value="Jugabilidad" ${buscarCategoria==='Jugabilidad'?'selected':''}>Jugabilidad</option>
-            <option value="HUD / Texturas" ${buscarCategoria==='HUD / Texturas'?'selected':''}>HUD / Texturas</option>
-            <option value="Mapas / Niveles" ${buscarCategoria==='Mapas / Niveles'?'selected':''}>Mapas / Niveles</option>
-            <option value="Scripts LUA" ${buscarCategoria==='Scripts LUA'?'selected':''}>Scripts LUA</option>
+            <option value="Character Select" ${buscarCategoria==='Character Select'?'selected':''}>Character Select</option>
+            <option value="Dynos" ${buscarCategoria==='Dynos'?'selected':''}>Dynos</option>
+            <option value="Hangouts / Romhack" ${buscarCategoria==='Hangouts / Romhack'?'selected':''}>Hangouts / Romhack</option>
+            <option value="Gamemodes" ${buscarCategoria==='Gamemodes'?'selected':''}>Gamemodes</option>
+            <option value="Movesets" ${buscarCategoria==='Movesets'?'selected':''}>Movesets</option>
+            <option value="Modifiers" ${buscarCategoria==='Modifiers'?'selected':''}>Modifiers</option>
+            <option value="Administrative / Utility" ${buscarCategoria==='Administrative / Utility'?'selected':''}>Administrative / Utility</option>
+            <option value="Resources" ${buscarCategoria==='Resources'?'selected':''}>Resources</option>
             <option value="Otros" ${buscarCategoria==='Otros'?'selected':''}>Otros</option>
           </select>
           <button type="submit" class="btn-blue">Filtrar</button>
@@ -258,14 +262,18 @@ app.get('/top', async (req, res) => {
             <option value="Todas">Todas las versiones</option>
             <option value="SM64 Co-op DX" ${buscarVersion==='SM64 Co-op DX'?'selected':''}>SM64 Co-op DX</option>
             <option value="SM64 EX Co-op" ${buscarVersion==='SM64 EX Co-op'?'selected':''}>SM64 EX Co-op</option>
+            <option value="DX + EX" ${buscarVersion==='DX + EX'?'selected':''}>DX + EX</option>
           </select>
           <select name="categoria">
             <option value="Todas">Todas las categorías</option>
-            <option value="Personajes" ${buscarCategoria==='Personajes'?'selected':''}>Personajes</option>
-            <option value="Jugabilidad" ${buscarCategoria==='Jugabilidad'?'selected':''}>Jugabilidad</option>
-            <option value="HUD / Texturas" ${buscarCategoria==='HUD / Texturas'?'selected':''}>HUD / Texturas</option>
-            <option value="Mapas / Niveles" ${buscarCategoria==='Mapas / Niveles'?'selected':''}>Mapas / Niveles</option>
-            <option value="Scripts LUA" ${buscarCategoria==='Scripts LUA'?'selected':''}>Scripts LUA</option>
+            <option value="Character Select" ${buscarCategoria==='Character Select'?'selected':''}>Character Select</option>
+            <option value="Dynos" ${buscarCategoria==='Dynos'?'selected':''}>Dynos</option>
+            <option value="Hangouts / Romhack" ${buscarCategoria==='Hangouts / Romhack'?'selected':''}>Hangouts / Romhack</option>
+            <option value="Gamemodes" ${buscarCategoria==='Gamemodes'?'selected':''}>Gamemodes</option>
+            <option value="Movesets" ${buscarCategoria==='Movesets'?'selected':''}>Movesets</option>
+            <option value="Modifiers" ${buscarCategoria==='Modifiers'?'selected':''}>Modifiers</option>
+            <option value="Administrative / Utility" ${buscarCategoria==='Administrative / Utility'?'selected':''}>Administrative / Utility</option>
+            <option value="Resources" ${buscarCategoria==='Resources'?'selected':''}>Resources</option>
             <option value="Otros" ${buscarCategoria==='Otros'?'selected':''}>Otros</option>
           </select>
           <button type="submit" class="btn-blue">Filtrar</button>
@@ -535,11 +543,18 @@ app.get('/publish', async (req, res) => {
     <div class="form-box"><h2>🚀 Publicar Mod</h2>
       <form action="/publish" method="POST" enctype="multipart/form-data">
         <label>Nombre:</label><input type="text" name="titulo" required>
-        <label>Versión:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option></select>
+        <label>Versión:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option><option value="DX + EX">DX + EX</option></select>
         <label>Categoría:</label><select name="categoria">
-          <option value="Personajes">Personajes</option><option value="Jugabilidad">Jugabilidad</option>
-          <option value="HUD / Texturas">HUD / Texturas</option><option value="Mapas / Niveles">Mapas / Niveles</option>
-          <option value="Scripts LUA">Scripts LUA</option><option value="Otros">Otros</option></select>
+          <option value="Character Select">Character Select</option>
+          <option value="Dynos">Dynos</option>
+          <option value="Hangouts / Romhack">Hangouts / Romhack</option>
+          <option value="Gamemodes">Gamemodes</option>
+          <option value="Movesets">Movesets</option>
+          <option value="Modifiers">Modifiers</option>
+          <option value="Administrative / Utility">Administrative / Utility</option>
+          <option value="Resources">Resources</option>
+          <option value="Otros">Otros</option>
+        </select>
         <label>Descripción:</label><textarea name="descripcion" required></textarea>
         <label>Archivo (.zip / .lua, máx 10 MB):</label><input type="file" name="archivoMod" required>
         <label>Capturas (hasta 4):</label><input type="file" name="imagenesMod" accept="image/*" multiple>
