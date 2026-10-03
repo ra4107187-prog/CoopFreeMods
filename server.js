@@ -834,11 +834,11 @@ app.get('/como-instalar', async (req, res) => {
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:800px;">
       <h1 style="color:white;margin-bottom:8px;">📖 Cómo instalar mods</h1>
-      <p style="color:#9ca3af;margin-bottom:28px;">Guía rápida para usar los mods de SM64 Co-op DX y SM64 EX Co-op.</p>
+      <p style="color:#9ca3af;margin-bottom:28px;">Guía rápida para usar los mods de SM64 Co-op DX y SM64 EX Co-op en Android y PC.</p>
 
       <div class="info-box">
-        <h2>1. Tené el juego base</h2>
-        <p>Necesitás <b>SM64 Co-op DX</b> o <b>SM64 EX Co-op</b> ya instalado y funcionando en tu PC.</p>
+        <h2>1. Tenér el juego base</h2>
+        <p>Necesitás <b>SM64 Co-op DX</b> o <b>SM64 EX Co-op</b> ya instalado y funcionando en tu PC o Android.</p>
         <p>Si aún no lo tenés, buscá la versión oficial de la comunidad (Discord / GitHub del proyecto co-op).</p>
       </div>
 
@@ -852,27 +852,18 @@ app.get('/como-instalar', async (req, res) => {
       <div class="info-box">
         <h2>3. Instalación típica (archivo .zip)</h2>
         <p>1. Descomprimí el .zip (clic derecho → Extraer)<br>
-        2. Abrí la carpeta del juego Co-op (donde está el ejecutable)<br>
+        2. Abrí la carpeta del juego Co-op (donde está el ejecutable, o en Android la carpeta com.maniscat2.sm64coopdx)<br>
         3. Buscá la carpeta de mods (suele llamarse <b>mods</b>, <b>dynos</b> o similar según el tipo)<br>
         4. Copiá ahí la carpeta o los archivos del mod<br>
         5. Reiniciá el juego si ya estaba abierto</p>
-        <p style="color:#9ca3af;font-size:13px;margin-top:12px;">Cada mod puede traer un README con pasos exactos. Leelo si viene incluido.</p>
       </div>
 
       <div class="info-box">
-        <h2>4. Según el tipo de mod</h2>
-        <p>• <b>Character Select / Dynos</b> — suelen ir en carpetas de personajes o dynos<br>
-        • <b>Movesets / Modifiers / Gamemodes</b> — a menudo en mods o scripts<br>
-        • <b>Resources</b> — scripts LUA u otros recursos<br>
-        • <b>Hangouts / Romhack</b> — pueden requerir pasos extra (leé la descripción del mod)</p>
-      </div>
-
-      <div class="info-box">
-        <h2>5. Problemas frecuentes</h2>
+        <h2>4. Problemas frecuentes</h2>
         <p>• <b>No aparece el mod</b> — revisá que esté en la carpeta correcta y reiniciá el juego<br>
         • <b>El juego crashea</b> — probá sin otros mods, o mirá si es solo DX / solo EX / DX+EX<br>
         • <b>Archivo dañado</b> — volvé a descargarlo desde la web<br>
-        • <b>Duda con un mod concreto</b> — comentá en la página del mod o preguntá en Discord</p>
+        • <b>Duda con un mod concreto</b> — comentá en el apartado de foros o preguntá en Discord</p>
       </div>
 
       <div class="info-box">
