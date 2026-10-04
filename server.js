@@ -651,9 +651,32 @@ app.get('/download/:id', async (req, res) => {
     const mod = mapMod(data);
     if (!mod || !mod.archivoPath) return res.status(404).send('No encontrado');
     await supabase.from('mods').update({ descargas: (mod.descargas || 0) + 1 }).eq('id', mod.id);
-    const { data: urlData } = supabase.storage.from('mods-files').getPublicUrl(mod.archivoPath);
-    res.redirect(urlData.publicUrl);
-  } catch (e) { res.status(500).send('Error'); }
+
+    // Nombre limpio = título del mod (sin id)
+    const ext = path.extname(mod.archivoPath) || path.extname(data.nombre_archivo_real || '') || '.zip';
+    let base = (mod.titulo || data.nombre_archivo_real || 'mod')
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 100) || 'mod';
+    // Evitar que quede solo números
+    if (/^\d+$/.test(base)) base = 'mod-' + base;
+    const filename = base + (ext.startsWith('.') ? ext : '.' + ext);
+
+    const { data: fileData, error } = await supabase.storage.from('mods-files').download(mod.archivoPath);
+    if (error || !fileData) {
+      const { data: urlData } = supabase.storage.from('mods-files').getPublicUrl(mod.archivoPath);
+      return res.redirect(urlData.publicUrl);
+    }
+    const buf = Buffer.from(await fileData.arrayBuffer());
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader('Content-Length', buf.length);
+    res.send(buf);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error al descargar');
+  }
 });
 
 app.get('/like/:id', async (req, res) => {
