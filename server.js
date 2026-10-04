@@ -220,7 +220,9 @@ app.get('/', async (req, res) => {
         <div class="grid">${renderModCards(pg.slice, sesion)}</div>
         ${renderPagination('/', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria })}
       </div>
-      <a href="https://discord.gg/UmuUHbtRRy" target="_blank" rel="noopener" class="discord-float" title="Unite al Discord">Discord</a>
+      <div class="discord-float-wrap">
+        <a href="https://discord.gg/UmuUHbtRRy" target="_blank" rel="noopener" class="discord-float" title="Unite al Discord">Discord</a>
+      </div>
     </body></html>`);
   } catch (err) {
     console.error(err);
