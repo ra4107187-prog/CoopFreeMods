@@ -188,7 +188,7 @@ app.get('/', async (req, res) => {
       return t && c && v;
     });
     const pg = paginateList(mods, req.query.page, 30);
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Coop Free Mods</title>${estilosCSS}</head><body>
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Inicio | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <form action="/" method="GET" class="filter-bar">
@@ -251,11 +251,11 @@ app.get('/top', async (req, res) => {
         </a>
         <div class="card-footer" style="padding:12px 15px;margin:0;">
           <span>por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></span>
-          <span>⭐ ${mod.likes}</span>
+          <span style="pointer-events:none;">⬇️ ${mod.descargas || 0}</span>
         </div>
       </div>`;
     }).join('') || '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">Sin datos.</p>';
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Top 10</title>${estilosCSS}</head><body>
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Top 10 | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <h2>🏆 Top 10 Mods más Descargados</h2>
@@ -293,7 +293,7 @@ app.get('/favoritos', async (req, res) => {
   const { data } = await supabase.from('mods').select('*').order('likes', { ascending: false });
   const mods = (data || []).map(mapMod).filter(m => (m.usuariosLike || []).includes(sesion.name));
   const pg = paginateList(mods, req.query.page, 30);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Favoritos</title>${estilosCSS}</head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Favoritos | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container"><h2>⭐ Mis favoritos (mods que me gustaron)</h2>
     <p style="color:#9ca3af;">${pg.total} mods · Página ${pg.page} de ${pg.totalPages}</p>
@@ -309,7 +309,7 @@ app.get('/mis-mods', async (req, res) => {
   const { data } = await supabase.from('mods').select('*').eq('autor', sesion.name).order('id', { ascending: false });
   const mods = (data || []).map(mapMod);
   const pg = paginateList(mods, req.query.page, 30);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mis mods</title>${estilosCSS}</head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mis mods | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container"><h2>📦 Mods publicados por mí</h2>
     <p style="color:#9ca3af;">${pg.total} mods · Página ${pg.page} de ${pg.totalPages}</p>
@@ -327,7 +327,7 @@ app.get('/notificaciones', async (req, res) => {
     <a href="${escapeHtml(n.link)}" style="color:#ced4da;text-decoration:none;">${escapeHtml(n.mensaje)}</a>
     <div style="font-size:11px;color:#6b7280;margin-top:4px;">${escapeHtml(n.tipo)} · ${new Date(n.created_at).toLocaleString('es-ES')}</div>
   </div>`).join('') || '<p style="color:#9ca3af;">No hay notificaciones.</p>';
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Notificaciones</title>${estilosCSS}</head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Notificaciones | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, 0)}
     <div class="main-container"><h2>🔔 Notificaciones</h2>${items}</div></body></html>`);
 });
@@ -376,7 +376,7 @@ app.get('/mod/:id', async (req, res) => {
       : sesion.banneado ? '<p style="color:#f87171;">Cuenta baneada: no puedes comentar.</p>'
       : '<p><a href="/login" style="color:#ff3333;">Inicia sesión</a> para comentar.</p>';
 
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)}</title>${estilosCSS}</head><body>
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
@@ -487,7 +487,7 @@ app.get('/user/:username', async (req, res) => {
     }
     const banTag = user.banneado ? '<span class="banned-badge">BANEADO</span>' : '';
     const modTag = isMod(user.usuario) ? '<span class="mod-badge">MODERADOR</span>' : '';
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>@${escapeHtml(user.usuario)}</title>${estilosCSS}</head><body>
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>@${escapeHtml(user.usuario)} | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div class="profile-header">
@@ -550,7 +550,7 @@ app.get('/publish', async (req, res) => {
   if (!sesion.name) return res.redirect('/login');
   if (sesion.banneado) return res.send('Cuenta baneada.');
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Publicar</title>${estilosCSS}</head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Publicar | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
     <div class="form-box"><h2>🚀 Publicar Mod</h2>
       <form action="/publish" method="POST" enctype="multipart/form-data">
@@ -611,7 +611,7 @@ app.get('/edit-mod/:id', async (req, res) => {
   const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
   const mod = mapMod(data);
   if (!mod || mod.autor !== sesion.name) return res.send('Sin permisos.');
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Editar</title>${estilosCSS}</head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Editar | Coop Free Mods</title>${estilosCSS}</head><body>
     <div class="form-box"><h2>✏️ Editar mod</h2>
       <form action="/edit-mod/${mod.id}" method="POST" enctype="multipart/form-data">
         <label>Título:</label><input type="text" name="titulo" value="${escapeHtml(mod.titulo)}" required>
@@ -787,7 +787,7 @@ app.post('/login', async (req, res) => {
 app.get('/info-disabled', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Información — Coop Free Mods</title>${estilosCSS}</head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Información | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:800px;">
       <h1 style="color:white;margin-bottom:8px;">ℹ️ Sobre Coop Free Mods</h1>
@@ -853,7 +853,7 @@ app.get('/info-disabled', async (req, res) => {
 app.get('/como-instalar', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Cómo instalar — Coop Free Mods</title>${estilosCSS}</head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Cómo instalar | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:800px;">
       <h1 style="color:white;margin-bottom:8px;">📖 Cómo instalar mods</h1>
@@ -918,24 +918,18 @@ const DISCORD_INVITE = 'https://discord.gg/RAbR6xBpcR';
 app.get('/discord', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  const siteKey = process.env.RECAPTCHA_SITE_KEY || '';
-  const useRecaptcha = !!siteKey;
-  const captchaBlock = useRecaptcha
-    ? `<div class="g-recaptcha" data-sitekey="${escapeHtml(siteKey)}" style="margin:16px 0;display:flex;justify-content:center;"></div>
-       <script src="https://www.google.com/recaptcha/api.js" async defer></script>`
-    : `<label style="display:flex;align-items:center;gap:10px;justify-content:center;margin:16px 0;color:#ced4da;cursor:pointer;">
-         <input type="checkbox" name="human" value="1" required style="width:auto;margin:0;">
-         Confirmo que no soy un bot
-       </label>
-       <input type="text" name="website" value="" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;opacity:0;" aria-hidden="true">`;
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Discord — Coop Free Mods</title>${estilosCSS}</head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Discord | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:480px;">
       <div class="form-box" style="margin-top:30px;">
         <h2 style="text-align:center;color:white;">Discord de Coop Free Mods</h2>
-        <p style="text-align:center;color:#9ca3af;font-size:14px;">Completá la verificación para unirte al servidor y evitar bots.</p>
-        <form action="/discord" method="POST" style="text-align:center;">
-          ${captchaBlock}
+        <p style="text-align:center;color:#9ca3af;font-size:14px;">Marcá la casilla para continuar (ayuda a filtrar bots básicos).</p>
+        <form action="/discord" method="POST" style="text-align:center;position:relative;">
+          <label style="display:flex;align-items:center;gap:10px;justify-content:center;margin:16px 0;color:#ced4da;cursor:pointer;">
+            <input type="checkbox" name="human" value="1" required style="width:auto;margin:0;">
+            Confirmo que no soy un bot
+          </label>
+          <input type="text" name="website" value="" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;opacity:0;height:0;width:0;" aria-hidden="true">
           <button type="submit" class="btn-blue" style="background:#5865F2;width:100%;padding:12px;">Entrar al Discord</button>
         </form>
         <p style="text-align:center;margin-top:16px;"><a href="/" style="color:#93c5fd;">← Volver al inicio</a></p>
@@ -945,29 +939,11 @@ app.get('/discord', async (req, res) => {
 });
 
 app.post('/discord', async (req, res) => {
-  const secret = process.env.RECAPTCHA_SECRET_KEY || '';
-  if (secret) {
-    const token = req.body['g-recaptcha-response'] || '';
-    if (!token) return res.send('Completá el captcha. <a href="/discord">Volver</a>');
-    try {
-      const verify = await fetch('https://www.google.com/recaptcha/api/siteverify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `secret=${encodeURIComponent(secret)}&response=${encodeURIComponent(token)}`
-      });
-      const data = await verify.json();
-      if (!data.success) return res.send('Captcha inválido. <a href="/discord">Volver</a>');
-    } catch (e) {
-      console.error(e);
-      return res.send('Error verificando captcha. <a href="/discord">Volver</a>');
-    }
-  } else {
-    // Fallback: checkbox + honeypot
-    if (req.body.website) return res.status(400).send('Bot detectado.');
-    if (req.body.human !== '1') return res.send('Marcá la casilla. <a href="/discord">Volver</a>');
-  }
+  if (req.body.website) return res.status(400).send('Bot detectado.');
+  if (req.body.human !== '1') return res.send('Marcá la casilla. <a href="/discord">Volver</a>');
   res.redirect(DISCORD_INVITE);
 });
+
 
 
 app.get('/logout', (req, res) => { res.clearCookie('usuarioSesion'); res.redirect('/'); });
@@ -1020,7 +996,7 @@ app.get('/foros', async (req, res) => {
     const newBtn = sesion.name && !sesion.banneado
       ? `<a href="/foros/nuevo" class="btn-red">+ Nuevo tema</a>`
       : `<a href="/login" class="btn-red">Entrar para publicar</a>`;
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Foros — Coop Free Mods</title>${estilosCSS}</head><body>
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Foros | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
@@ -1046,7 +1022,7 @@ app.get('/foros/nuevo', async (req, res) => {
   if (sesion.banneado) return res.send('Cuenta baneada.');
   const nNotif = await countNotif(sesion.name);
   const opts = FORO_CATEGORIAS.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Nuevo tema</title>${estilosCSS}</head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Nuevo tema | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
     <div class="form-box"><h2>✏️ Nuevo tema</h2>
       <form action="/foros/nuevo" method="POST">
@@ -1136,7 +1112,7 @@ app.get('/foros/tema/:id', async (req, res) => {
         <button type="submit" class="btn-blue">Responder</button>
       </form>`;
     } else replyBox = '<p><a href="/login" style="color:#ff3333;">Inicia sesión</a> para responder.</p>';
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(tema.titulo)}</title>${estilosCSS}</head><body>
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(tema.titulo)} | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <p><a href="/foros" style="color:#93c5fd;">← Foros</a></p>
