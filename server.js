@@ -148,12 +148,9 @@ function navbar(sesion, nNotif, extra) {
 function renderModCards(mods, sesion) {
   if (!mods.length) return '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">No se encontraron mods.</p>';
   return mods.map(mod => {
-    const yaLike = sesion.name ? mod.usuariosLike.includes(sesion.name) : false;
-    const claseLike = yaLike ? 'btn-like active' : 'btn-like';
     const numCom = (mod.comentarios || []).filter(c => !c.parentId).length;
     const foto = mod.rutasImagenes && mod.rutasImagenes[0];
     const img = foto ? `<img src="${escapeHtml(foto)}">` : '<div style="color:#555;font-size:40px;">📦</div>';
-    // Toda la zona superior (imagen + título + descripción) es clickeable
     return `<div class="card" style="position:relative;">
       <a href="/mod/${mod.id}" style="text-decoration:none;color:inherit;display:block;flex:1;">
         <div class="card-img-box">${img}</div>
@@ -165,9 +162,9 @@ function renderModCards(mods, sesion) {
       </a>
       <div class="card-footer" style="padding:12px 15px;margin:0;">
         <span>por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></span>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <a href="/like/${mod.id}" class="${claseLike}">⭐ ${mod.likes}</a>
-          <span>💬 ${numCom}</span>
+        <div style="display:flex;gap:10px;align-items:center;color:#9ca3af;font-size:12px;pointer-events:none;">
+          <span title="Descargas">⬇️ ${mod.descargas || 0}</span>
+          <span title="Comentarios">💬 ${numCom}</span>
         </div>
       </div>
     </div>`;
@@ -221,7 +218,7 @@ app.get('/', async (req, res) => {
         ${renderPagination('/', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria })}
       </div>
       <div class="discord-float-wrap">
-        <a href="https://discord.gg/UmuUHbtRRy" target="_blank" rel="noopener" class="discord-float" title="Unite al Discord">Discord</a>
+        <a href="/discord" target="_blank" rel="noopener" class="discord-float" title="Unite al Discord">Discord</a>
       </div>
     </body></html>`);
   } catch (err) {
@@ -249,7 +246,7 @@ app.get('/top', async (req, res) => {
           <div class="card-content">
             <div style="margin-bottom:10px;"><span class="top-badge">#${i+1}</span><span class="tag-version">${escapeHtml(mod.version)}</span></div>
             <h3 style="color:white;">${escapeHtml(mod.titulo)}</h3>
-            <p style="margin:0 0 10px 0;color:#9ca3af;font-size:12px;">⬇️ ${mod.descargas} descargas</p>
+            
           </div>
         </a>
         <div class="card-footer" style="padding:12px 15px;margin:0;">
@@ -889,6 +886,64 @@ app.get('/como-instalar', async (req, res) => {
       </p>
     </div>
   </body></html>`);
+});
+
+
+
+const DISCORD_INVITE = 'https://discord.gg/RAbR6xBpcR';
+
+app.get('/discord', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const siteKey = process.env.RECAPTCHA_SITE_KEY || '';
+  const useRecaptcha = !!siteKey;
+  const captchaBlock = useRecaptcha
+    ? `<div class="g-recaptcha" data-sitekey="${escapeHtml(siteKey)}" style="margin:16px 0;display:flex;justify-content:center;"></div>
+       <script src="https://www.google.com/recaptcha/api.js" async defer></script>`
+    : `<label style="display:flex;align-items:center;gap:10px;justify-content:center;margin:16px 0;color:#ced4da;cursor:pointer;">
+         <input type="checkbox" name="human" value="1" required style="width:auto;margin:0;">
+         Confirmo que no soy un bot
+       </label>
+       <input type="text" name="website" value="" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;opacity:0;" aria-hidden="true">`;
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Discord — Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:480px;">
+      <div class="form-box" style="margin-top:30px;">
+        <h2 style="text-align:center;color:white;">Discord de Coop Free Mods</h2>
+        <p style="text-align:center;color:#9ca3af;font-size:14px;">Completá la verificación para unirte al servidor y evitar bots.</p>
+        <form action="/discord" method="POST" style="text-align:center;">
+          ${captchaBlock}
+          <button type="submit" class="btn-blue" style="background:#5865F2;width:100%;padding:12px;">Entrar al Discord</button>
+        </form>
+        <p style="text-align:center;margin-top:16px;"><a href="/" style="color:#93c5fd;">← Volver al inicio</a></p>
+      </div>
+    </div>
+  </body></html>`);
+});
+
+app.post('/discord', async (req, res) => {
+  const secret = process.env.RECAPTCHA_SECRET_KEY || '';
+  if (secret) {
+    const token = req.body['g-recaptcha-response'] || '';
+    if (!token) return res.send('Completá el captcha. <a href="/discord">Volver</a>');
+    try {
+      const verify = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `secret=${encodeURIComponent(secret)}&response=${encodeURIComponent(token)}`
+      });
+      const data = await verify.json();
+      if (!data.success) return res.send('Captcha inválido. <a href="/discord">Volver</a>');
+    } catch (e) {
+      console.error(e);
+      return res.send('Error verificando captcha. <a href="/discord">Volver</a>');
+    }
+  } else {
+    // Fallback: checkbox + honeypot
+    if (req.body.website) return res.status(400).send('Bot detectado.');
+    if (req.body.human !== '1') return res.send('Marcá la casilla. <a href="/discord">Volver</a>');
+  }
+  res.redirect(DISCORD_INVITE);
 });
 
 
