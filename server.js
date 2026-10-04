@@ -118,7 +118,7 @@ function authLinks(sesion, nNotif) {
   }
   const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
-    <span style="color:#9ca3af;font-size:14px;">Hola,
+    <span style="color:white;font-size:14px;">Hola,
       <a href="/user/${escapeHtml(sesion.name)}" style="color:white;font-weight:bold;text-decoration:none;">${escapeHtml(sesion.name)}</a>${modBadge}
     </span>
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
