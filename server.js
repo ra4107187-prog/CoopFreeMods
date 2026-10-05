@@ -58,8 +58,11 @@ const upload = multer({
       return cb(new Error('Solo .zip, .7z, .rar o .lua'));
     }
     if (file.fieldname === 'imagenesMod') {
-      if (file.mimetype && file.mimetype.startsWith('image/')) return cb(null, true);
-      return cb(new Error('Solo imagenes'));
+      const ext = path.extname(file.originalname).toLowerCase();
+      const okExt = ['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext);
+      const okMime = file.mimetype && ['image/png','image/jpeg','image/jpg','image/webp','image/gif'].includes(file.mimetype);
+      if (okExt || okMime) return cb(null, true);
+      return cb(new Error('Solo capturas PNG, JPG, JPEG, WebP o GIF'));
     }
     cb(null, true);
   }
@@ -73,6 +76,20 @@ function escapeHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function isMod(user) { return user === MODERADOR; }
+function isAllowedModLink(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    const h = u.hostname.toLowerCase().replace(/^www\./, '');
+    const allowed = [
+      'drive.google.com', 'docs.google.com',
+      'mediafire.com', 'www.mediafire.com',
+      'mega.nz', 'mega.io'
+    ];
+    return allowed.some(d => h === d || h.endsWith('.' + d));
+  } catch (e) { return false; }
+}
+
 function mapMod(row) {
   if (!row) return null;
   return {
@@ -445,7 +462,7 @@ app.get('/mod/:id', async (req, res) => {
     const sesion = await getSesion(req);
     const nNotif = await countNotif(sesion.name);
     const { data, error } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
-    if (error || !data) return res.status(404).send('<h1>Mod no encontrado</h1>');
+    if (error || !data) return pageError(res, 404, 'Mod no encontrado', 'Ese mod no existe o fue eliminado.', sesion, nNotif);
     const mod = mapMod(data);
     const fotos = (mod.rutasImagenes || []).map(u => u ? `<div class="mod-gallery-preview"><img src="${escapeHtml(u)}"></div>` : '').join('');
     let updates = (mod.historialActualizaciones || []).map(up =>
@@ -525,7 +542,7 @@ app.get('/delete-mod/:id', async (req, res) => {
   if (!sesion.name) return res.redirect('/login');
   const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
   if (!data) return res.redirect('/');
-  if (data.autor !== sesion.name && !sesion.esMod) return res.send('Sin permisos.');
+  if (data.autor !== sesion.name && !sesion.esMod) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
   if (data.archivo_path) {
     try { await supabase.storage.from('mods-files').remove([data.archivo_path]); } catch(e){}
   }
@@ -542,7 +559,7 @@ app.get('/delete-comment/:modId/:commentId', async (req, res) => {
   let comentarios = data.comentarios || [];
   const c = comentarios.find(x => x.id === req.params.commentId);
   if (!c) return res.redirect('/mod/' + modId);
-  if (c.usuario !== sesion.name && !sesion.esMod) return res.send('Sin permisos.');
+  if (c.usuario !== sesion.name && !sesion.esMod) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
   // borrar comentario y sus respuestas
   comentarios = comentarios.filter(x => x.id !== req.params.commentId && x.parentId !== req.params.commentId);
   await supabase.from('mods').update({ comentarios }).eq('id', modId);
@@ -615,14 +632,14 @@ app.get('/user/:username', async (req, res) => {
 
 app.get('/ban/:username', async (req, res) => {
   const sesion = await getSesion(req);
-  if (!sesion.esMod) return res.send('Solo moderadores.');
-  if (req.params.username === MODERADOR) return res.send('No.');
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Esta acción es solo para moderadores.', sesion, 0);
+  if (req.params.username === MODERADOR) return pageError(res, 403, 'No permitido', 'No se puede realizar esta acción.', sesion, 0);
   await supabase.from('usuarios').update({ banneado: true }).eq('usuario', req.params.username);
   res.redirect('/user/' + req.params.username);
 });
 app.get('/unban/:username', async (req, res) => {
   const sesion = await getSesion(req);
-  if (!sesion.esMod) return res.send('Solo moderadores.');
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Esta acción es solo para moderadores.', sesion, 0);
   await supabase.from('usuarios').update({ banneado: false }).eq('usuario', req.params.username);
   res.redirect('/user/' + req.params.username);
 });
@@ -656,7 +673,7 @@ app.get('/follow/:username', async (req, res) => {
 app.get('/publish', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name) return res.redirect('/login');
-  if (sesion.banneado) return res.send('Cuenta baneada.');
+  if (sesion.banneado) return pageError(res, 403, 'Cuenta baneada', 'Tu cuenta está baneada.', sesion, 0);
   const nNotif = await countNotif(sesion.name);
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Publicar | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
@@ -679,10 +696,10 @@ app.get('/publish', async (req, res) => {
         <label>Archivo (.zip / .lua, máx 10 MB) — opcional si ponés link:</label>
         <input type="file" name="archivoMod">
         <label>Link de descarga externo (opcional):</label>
-        <input type="url" name="linkExterno" placeholder="https://drive.google.com/...">
-        <p style="color:#9ca3af;font-size:12px;margin:-8px 0 12px;">Podés subir archivo, poner un link, o ambos. Hace falta al menos uno. Si el archivo pesa mucho y Vercel falla, usá solo el link.</p>
-        <label>Capturas (hasta 4):</label>
-        <input type="file" name="imagenesMod" accept="image/*" multiple>
+        <input type="url" name="linkExterno" placeholder="https://drive.google.com/... o mediafire / mega">
+        <p style="color:#9ca3af;font-size:12px;margin:-8px 0 12px;">Link opcional solo de Google Drive, MediaFire o MEGA. Hace falta archivo o link. Capturas: PNG, JPG, WebP o GIF.</p>
+        <label>Capturas (hasta 4, PNG/JPG/WebP/GIF):</label>
+        <input type="file" name="imagenesMod" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif" multiple>
         <button type="submit" class="btn-red" style="width:100%;">Publicar</button>
       </form>
     </div></body></html>`);
@@ -691,16 +708,16 @@ app.get('/publish', async (req, res) => {
 app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name: 'imagenesMod', maxCount: 4 }]), async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name || sesion.banneado) return res.redirect('/login');
-  if (!rateLimit('publish:' + sesion.name, 3000)) return res.send('Espera un momento antes de publicar de nuevo. <a href="/publish">Volver</a>');
+  if (!rateLimit('publish:' + sesion.name, 3000)) return pageError(res, 429, 'Demasiado rápido', 'Esperá un momento antes de publicar de nuevo.', sesion, 0);
   try {
     const arc = req.files && req.files['archivoMod'] && req.files['archivoMod'][0];
     const imgs = (req.files && req.files['imagenesMod']) || [];
     const linkExterno = (req.body.linkExterno || '').trim();
     if (!arc && !linkExterno) {
-      return res.send('Subí un archivo o poné un link de descarga. <a href="/publish">Volver</a>');
+      return pageError(res, 400, 'Falta archivo o link', 'Subí un archivo o un link de Drive / MediaFire / MEGA.', sesion, 0);
     }
-    if (linkExterno && !/^https?:\/\//i.test(linkExterno)) {
-      return res.send('El link debe empezar con http:// o https://. <a href="/publish">Volver</a>');
+    if (linkExterno && !isAllowedModLink(linkExterno)) {
+      return pageError(res, 400, 'Link no permitido', 'Solo se aceptan links de Google Drive, MediaFire o MEGA.', sesion, 0);
     }
     const ts = Date.now();
     let filePath = '';
@@ -735,7 +752,7 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
     res.redirect('/mods');
   } catch (e) {
     console.error(e);
-    res.status(500).send('Error: ' + e.message + ' <a href="/publish">Volver</a>');
+    pageError(res, 500, 'Error al publicar', escapeHtml(e.message || 'Error desconocido'), sesion, 0);
   }
 });
 
@@ -744,7 +761,7 @@ app.get('/edit-mod/:id', async (req, res) => {
   if (!sesion.name) return res.redirect('/login');
   const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
   const mod = mapMod(data);
-  if (!mod || mod.autor !== sesion.name) return res.send('Sin permisos.');
+  if (!mod || mod.autor !== sesion.name) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Editar | Coop Free Mods</title>${estilosCSS}</head><body>
     <div class="form-box"><h2>✏️ Editar mod</h2>
       <form action="/edit-mod/${mod.id}" method="POST" enctype="multipart/form-data">
@@ -762,7 +779,7 @@ app.post('/edit-mod/:id', upload.fields([{ name: 'archivoMod', maxCount: 1 }]), 
   if (!sesion.name) return res.redirect('/login');
   const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
   const mod = mapMod(data);
-  if (!mod || mod.autor !== sesion.name) return res.send('Sin permisos.');
+  if (!mod || mod.autor !== sesion.name) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
   const update = { titulo: req.body.titulo, descripcion: req.body.descripcion };
   if (req.files['archivoMod'] && req.files['archivoMod'][0]) {
     const file = req.files['archivoMod'][0];
@@ -812,7 +829,7 @@ app.get('/download/:id', async (req, res) => {
     res.send(buf);
   } catch (e) {
     console.error(e);
-    res.status(500).send('Error al descargar');
+    pageError(res, 500, 'Error al descargar', 'No se pudo descargar el archivo.', null, 0);
   }
 });
 
@@ -872,10 +889,10 @@ app.post('/register', async (req, res) => {
   try {
     const usuario = (req.body.usuario || '').trim();
     const password = req.body.password || '';
-    if (password.length < 6) return res.send('La contraseña debe tener al menos 6 caracteres. <a href="/register">Volver</a>');
-    if (!usuario || usuario.length < 3) return res.send('Usuario inválido. <a href="/register">Volver</a>');
+    if (password.length < 6) return pageError(res, 400, 'Contraseña corta', 'La contraseña debe tener al menos 6 caracteres.', null, 0);
+    if (!usuario || usuario.length < 3) return pageError(res, 400, 'Usuario inválido', 'Elegí un nombre de usuario válido.', null, 0);
     const { data: existing } = await supabase.from('usuarios').select('id').eq('usuario', usuario).single();
-    if (existing) return res.send('Ese usuario ya existe. <a href="/register">Volver</a>');
+    if (existing) return pageError(res, 400, 'Usuario existente', 'Ese nombre ya está registrado.', null, 0);
     const hash = await bcrypt.hash(password, 10);
     const { error } = await supabase.from('usuarios').insert({
       usuario, password: hash, descripcion: req.body.descripcion || 'Desarrollador',
@@ -902,8 +919,8 @@ app.get('/login', (req, res) => {
 app.post('/login', async (req, res) => {
   try {
     const { data: u } = await supabase.from('usuarios').select('*').eq('usuario', req.body.usuario).single();
-    if (!u) return res.send('Usuario o contraseña incorrectos. <a href="/login">Volver</a>');
-    if (u.banneado) return res.send('Cuenta baneada. <a href="/">Inicio</a>');
+    if (!u) return pageError(res, 401, 'Datos incorrectos', 'Usuario o contraseña incorrectos.', null, 0);
+    if (u.banneado) return pageError(res, 403, 'Cuenta baneada', 'Tu cuenta está baneada.', null, 0);
     let ok = false;
     if (u.password && u.password.startsWith('$2')) ok = await bcrypt.compare(req.body.password, u.password);
     else {
@@ -1069,8 +1086,8 @@ app.get('/discord', async (req, res) => {
 });
 
 app.post('/discord', async (req, res) => {
-  if (req.body.website) return res.status(400).send('Bot detectado.');
-  if (req.body.human !== '1') return res.send('Marcá la casilla. <a href="/discord">Volver</a>');
+  if (req.body.website) return pageError(res, 400, 'Bot detectado', 'La verificación falló.', null, 0);
+  if (req.body.human !== '1') return pageError(res, 400, 'Verificación', 'Marcá la casilla para continuar al Discord.', null, 0);
   res.redirect(DISCORD_INVITE);
 });
 
@@ -1149,7 +1166,7 @@ app.get('/foros', async (req, res) => {
 app.get('/foros/nuevo', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name) return res.redirect('/login');
-  if (sesion.banneado) return res.send('Cuenta baneada.');
+  if (sesion.banneado) return pageError(res, 403, 'Cuenta baneada', 'Tu cuenta está baneada.', sesion, 0);
   const nNotif = await countNotif(sesion.name);
   const opts = FORO_CATEGORIAS.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Nuevo tema | Coop Free Mods</title>${estilosCSS}</head><body>
@@ -1169,15 +1186,15 @@ app.get('/foros/nuevo', async (req, res) => {
 app.post('/foros/nuevo', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name || sesion.banneado) return res.redirect('/login');
-  if (!rateLimit('foro-nuevo:' + sesion.name, 5000)) return res.send('Espera un momento. <a href="/foros">Volver</a>');
+  if (!rateLimit('foro-nuevo:' + sesion.name, 5000)) return pageError(res, 429, 'Demasiado rápido', 'Esperá un momento e intentá de nuevo.', sesion, 0);
   const titulo = (req.body.titulo || '').trim();
   const contenido = (req.body.contenido || '').trim();
   const categoria = FORO_CATEGORIAS.includes(req.body.categoria) ? req.body.categoria : 'General';
-  if (titulo.length < 3 || contenido.length < 3) return res.send('Título y mensaje muy cortos. <a href="/foros/nuevo">Volver</a>');
+  if (titulo.length < 3 || contenido.length < 3) return pageError(res, 400, 'Datos incompletos', 'Título y mensaje deben tener al menos 3 caracteres.', sesion, 0);
   const { data, error } = await supabase.from('foro_temas').insert({
     titulo, contenido, autor: sesion.name, categoria, vistas: 0
   }).select('id').single();
-  if (error) { console.error(error); return res.status(500).send('Error al crear tema.'); }
+  if (error) { console.error(error); return pageError(res, 500, 'Error', 'No se pudo crear el tema.', sesion, 0); }
   res.redirect('/foros/tema/' + data.id);
 });
 
@@ -1312,7 +1329,7 @@ app.get('/foros/borrar-tema/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   const { data: tema } = await supabase.from('foro_temas').select('*').eq('id', id).single();
   if (!tema) return res.redirect('/foros');
-  if (tema.autor !== sesion.name && !sesion.esMod) return res.send('Sin permisos.');
+  if (tema.autor !== sesion.name && !sesion.esMod) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
   await supabase.from('foro_respuestas').delete().eq('tema_id', id);
   await supabase.from('foro_temas').delete().eq('id', id);
   res.redirect('/foros');
@@ -1325,14 +1342,14 @@ app.get('/foros/borrar-resp/:id', async (req, res) => {
   const temaId = req.query.tema;
   const { data: r } = await supabase.from('foro_respuestas').select('*').eq('id', id).single();
   if (!r) return res.redirect('/foros');
-  if (r.autor !== sesion.name && !sesion.esMod) return res.send('Sin permisos.');
+  if (r.autor !== sesion.name && !sesion.esMod) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
   await supabase.from('foro_respuestas').delete().eq('id', id);
   res.redirect('/foros/tema/' + (temaId || r.tema_id));
 });
 
 app.get('/foros/pin/:id', async (req, res) => {
   const sesion = await getSesion(req);
-  if (!sesion.esMod) return res.send('Solo moderadores.');
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Esta acción es solo para moderadores.', sesion, 0);
   const id = parseInt(req.params.id);
   const { data: tema } = await supabase.from('foro_temas').select('fijado').eq('id', id).single();
   if (tema) await supabase.from('foro_temas').update({ fijado: !tema.fijado }).eq('id', id);
@@ -1341,7 +1358,7 @@ app.get('/foros/pin/:id', async (req, res) => {
 
 app.get('/foros/cerrar/:id', async (req, res) => {
   const sesion = await getSesion(req);
-  if (!sesion.esMod) return res.send('Solo moderadores.');
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Esta acción es solo para moderadores.', sesion, 0);
   const id = parseInt(req.params.id);
   const { data: tema } = await supabase.from('foro_temas').select('cerrado').eq('id', id).single();
   if (tema) await supabase.from('foro_temas').update({ cerrado: !tema.cerrado }).eq('id', id);
