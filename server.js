@@ -160,11 +160,38 @@ function navbar(sesion, nNotif, extra) {
       <a href="/top">⭐ Top 10</a>
       <a href="/foros">💬 Foros</a>
       <a href="/como-instalar">📖 Cómo instalar</a>
+      <a href="/config">⚙️ Config</a>
       ${mid}
       ${extra || ''}
       ${authLinks(sesion, nNotif || 0)}
     </div>
-  </div>`;
+  </div>
+  <script>
+  (function(){
+    try {
+      var c = localStorage.getItem('cfm_cursor') === '1';
+      var m = localStorage.getItem('cfm_music') === '1';
+      if (c) document.documentElement.classList.add('cfm-sm64-cursor');
+      else document.documentElement.classList.remove('cfm-sm64-cursor');
+      var audio = document.getElementById('cfm-bg-music');
+      if (!audio) {
+        audio = document.createElement('audio');
+        audio.id = 'cfm-bg-music';
+        audio.loop = true;
+        audio.preload = 'none';
+        audio.src = '/public/bg-music.mp3';
+        audio.volume = 0.35;
+        document.body.appendChild(audio);
+      }
+      if (m) {
+        var p = audio.play();
+        if (p && p.catch) p.catch(function(){});
+      } else {
+        audio.pause();
+      }
+    } catch(e) {}
+  })();
+  </script>`;
 }
 function renderModCards(mods, sesion) {
   if (!mods.length) return '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">No se encontraron mods.</p>';
@@ -1363,6 +1390,72 @@ app.get('/foros/cerrar/:id', async (req, res) => {
   const { data: tema } = await supabase.from('foro_temas').select('cerrado').eq('id', id).single();
   if (tema) await supabase.from('foro_temas').update({ cerrado: !tema.cerrado }).eq('id', id);
   res.redirect('/foros/tema/' + id);
+});
+
+
+
+app.get('/config', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:560px;">
+      <div class="form-box" style="margin-top:24px;">
+        <h2 style="color:white;margin-top:0;">⚙️ Configuración</h2>
+        <p style="color:#9ca3af;font-size:14px;">Opciones especiales en <b>tu navegador</b> (no afectan a otros usuarios).</p>
+
+        <label class="config-row">
+          <span>
+            <b style="color:white;">Cursor SM64</b><br>
+            <span style="color:#9ca3af;font-size:13px;">Cambia el cursor por uno estilo Super Mario 64.</span>
+          </span>
+          <input type="checkbox" id="optCursor" style="width:auto;transform:scale(1.3);">
+        </label>
+
+        <label class="config-row">
+          <span>
+            <b style="color:white;">Música de fondo</b><br>
+            <span style="color:#9ca3af;font-size:13px;">Reproduce música mientras navegás (podés pausarla cuando quieras).</span>
+          </span>
+          <input type="checkbox" id="optMusic" style="width:auto;transform:scale(1.3);">
+        </label>
+
+        <p style="color:#6b7280;font-size:12px;margin-top:20px;">Si la música no suena, el navegador bloqueó el autoplay: activá la opción y hacé un clic en la página. Archivos opcionales en el servidor: <code>public/cursor.png</code> y <code>public/bg-music.mp3</code>.</p>
+        <p style="text-align:center;margin-top:20px;"><a href="/" class="btn-red">Volver al inicio</a></p>
+      </div>
+    </div>
+    <script>
+    (function(){
+      var cur = document.getElementById('optCursor');
+      var mus = document.getElementById('optMusic');
+      cur.checked = localStorage.getItem('cfm_cursor') === '1';
+      mus.checked = localStorage.getItem('cfm_music') === '1';
+      function apply(){
+        localStorage.setItem('cfm_cursor', cur.checked ? '1' : '0');
+        localStorage.setItem('cfm_music', mus.checked ? '1' : '0');
+        if (cur.checked) document.documentElement.classList.add('cfm-sm64-cursor');
+        else document.documentElement.classList.remove('cfm-sm64-cursor');
+        var audio = document.getElementById('cfm-bg-music');
+        if (!audio) {
+          audio = document.createElement('audio');
+          audio.id = 'cfm-bg-music';
+          audio.loop = true;
+          audio.src = '/public/bg-music.mp3';
+          audio.volume = 0.35;
+          document.body.appendChild(audio);
+        }
+        if (mus.checked) {
+          var p = audio.play();
+          if (p && p.catch) p.catch(function(){ alert('El navegador bloqueó la música. Hacé clic en la página e intentá de nuevo.'); });
+        } else {
+          audio.pause();
+        }
+      }
+      cur.addEventListener('change', apply);
+      mus.addEventListener('change', apply);
+    })();
+    </script>
+  </body></html>`);
 });
 
 
