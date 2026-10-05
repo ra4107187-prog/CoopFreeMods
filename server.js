@@ -172,10 +172,23 @@ function navbar(sesion, nNotif, extra) {
       var c = localStorage.getItem('cfm_cursor') === '1';
       var m = localStorage.getItem('cfm_music') === '1';
       var lv = localStorage.getItem('cfm_list_view') === '1';
+      var clk = localStorage.getItem('cfm_click') === '1';
       if (c) document.documentElement.classList.add('cfm-sm64-cursor');
       else document.documentElement.classList.remove('cfm-sm64-cursor');
       if (lv) document.documentElement.classList.add('cfm-list-view');
       else document.documentElement.classList.remove('cfm-list-view');
+      // Sonido al hacer click
+      if (!window.__cfmClickBound) {
+        window.__cfmClickBound = true;
+        document.addEventListener('click', function() {
+          try {
+            if (localStorage.getItem('cfm_click') !== '1') return;
+            var a = new Audio('/public/click.mp3');
+            a.volume = 0.45;
+            a.play().catch(function(){});
+          } catch (e) {}
+        }, true);
+      }
 
       var audio = document.getElementById('cfm-bg-music');
       if (!audio) {
@@ -1459,7 +1472,15 @@ app.get('/config', async (req, res) => {
           <input type="checkbox" id="optList" style="width:auto;transform:scale(1.3);">
         </label>
 
-        <p style="color:#6b7280;font-size:12px;margin-top:20px;">Si la música no suena, el navegador bloqueó el autoplay: activá la opción y hacé un clic en la página. Archivos opcionales en el servidor: <code>public/cursor.png</code> y <code>public/bg-music.mp3</code>.</p>
+        <label class="config-row">
+          <span>
+            <b style="color:white;">Sonido al hacer click</b><br>
+            <span style="color:#9ca3af;font-size:13px;">Reproduce un sonido cada vez que hacés click en la página.</span>
+          </span>
+          <input type="checkbox" id="optClick" style="width:auto;transform:scale(1.3);">
+        </label>
+
+        <p style="color:#6b7280;font-size:12px;margin-top:20px;">Si la música no suena, el navegador bloqueó el autoplay: activá la opción y hacé un clic en la página. Archivos opcionales: <code>public/cursor.png</code>, <code>public/bg-music.mp3</code> y <code>public/click.mp3</code>.</p>
         <p style="text-align:center;margin-top:20px;"><a href="/" class="btn-red">Volver al inicio</a></p>
       </div>
     </div>
@@ -1468,17 +1489,23 @@ app.get('/config', async (req, res) => {
       var cur = document.getElementById('optCursor');
       var mus = document.getElementById('optMusic');
       var lst = document.getElementById('optList');
+      var clk = document.getElementById('optClick');
       cur.checked = localStorage.getItem('cfm_cursor') === '1';
       mus.checked = localStorage.getItem('cfm_music') === '1';
       lst.checked = localStorage.getItem('cfm_list_view') === '1';
+      clk.checked = localStorage.getItem('cfm_click') === '1';
       function apply(){
         localStorage.setItem('cfm_cursor', cur.checked ? '1' : '0');
         localStorage.setItem('cfm_music', mus.checked ? '1' : '0');
         localStorage.setItem('cfm_list_view', lst.checked ? '1' : '0');
+        localStorage.setItem('cfm_click', clk.checked ? '1' : '0');
         if (cur.checked) document.documentElement.classList.add('cfm-sm64-cursor');
         else document.documentElement.classList.remove('cfm-sm64-cursor');
         if (lst.checked) document.documentElement.classList.add('cfm-list-view');
         else document.documentElement.classList.remove('cfm-list-view');
+        if (clk.checked) {
+          try { var t = new Audio('/public/click.mp3'); t.volume = 0.45; t.play().catch(function(){}); } catch(e) {}
+        }
         var audio = document.getElementById('cfm-bg-music');
         if (!audio) {
           audio = document.createElement('audio');
@@ -1498,6 +1525,7 @@ app.get('/config', async (req, res) => {
       cur.addEventListener('change', apply);
       mus.addEventListener('change', apply);
       lst.addEventListener('change', apply);
+      clk.addEventListener('change', apply);
     })();
     </script>
   </body></html>`);
