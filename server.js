@@ -891,7 +891,7 @@ app.get('/info-disabled', async (req, res) => {
 
       <div class="info-box">
         <h2>Origen del proyecto</h2>
-        <p>El proyecto fue <b>iniciado por @Ellos (them)</b>. Más adelante se discontinuó el hosting original (túnel Cloudflare) y se dejó continuar a la comunidad.</p>
+        <p>El proyecto fue <b>iniciado por @Ellos (them)</b>. Más adelante se discontinuó el hosting original (túnel Cloudflare) y lo continuo @SuperAaron64.</p>
         <p>Esta versión mantiene la idea original y suma persistencia en la nube (Vercel + Supabase), notificaciones, moderación, paginación y más herramientas para la comunidad.</p>
       </div>
 
