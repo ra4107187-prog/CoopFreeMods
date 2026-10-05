@@ -220,8 +220,8 @@ app.get('/', async (req, res) => {
           <div class="home-main">
             <div class="home-hero">
               <h1>Bienvenido a <span class="home-accent">Coop Free Mods</span></h1>
-              <p class="home-lead">La biblioteca comunitaria hispana de mods gratis para <b>SM64 Co-op DX</b>, <b>SM64 EX Co-op</b> y <b>DX + EX</b>. Descargá, publicá y compartí personajes, dynos, hangouts, gamemodes y más.</p>
-              <p class="home-lead" style="font-size:14px;color:#9ca3af;">Proyecto iniciado por @Ellos (them) y continuado por @SuperAaron64. Los mods se guardan en la nube y no se pierden al reiniciar.</p>
+              <p class="home-lead">La biblioteca comunitaria de mods gratis para <b>SM64 Co-op DX</b>, <b>SM64 EX Co-op</b> y <b>DX + EX</b>. Descargá, publicá y compartí personajes, dynos, hangouts, gamemodes y más.</p>
+              <p class="home-lead" style="font-size:14px;color:#9ca3af;">Proyecto iniciado por @Ellos (them) y continuado por la comunidad. Los mods se guardan en la nube y no se pierden al reiniciar.</p>
             </div>
             <div class="home-section">
               <h2>🆕 Mods más recientes</h2>
@@ -659,8 +659,13 @@ app.get('/publish', async (req, res) => {
           <option value="Otros">Otros</option>
         </select>
         <label>Descripción:</label><textarea name="descripcion" required></textarea>
-        <label>Archivo (.zip / .lua, máx 10 MB):</label><input type="file" name="archivoMod" required>
-        <label>Capturas (hasta 4):</label><input type="file" name="imagenesMod" accept="image/*" multiple>
+        <label>Archivo (.zip / .lua, máx 10 MB) — opcional si ponés link:</label>
+        <input type="file" name="archivoMod">
+        <label>Link de descarga externo (opcional):</label>
+        <input type="url" name="linkExterno" placeholder="https://drive.google.com/...">
+        <p style="color:#9ca3af;font-size:12px;margin:-8px 0 12px;">Podés subir archivo, poner un link, o ambos. Hace falta al menos uno. Si el archivo pesa mucho y Vercel falla, usá solo el link.</p>
+        <label>Capturas (hasta 4):</label>
+        <input type="file" name="imagenesMod" accept="image/*" multiple>
         <button type="submit" class="btn-red" style="width:100%;">Publicar</button>
       </form>
     </div></body></html>`);
@@ -671,14 +676,32 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
   if (!sesion.name || sesion.banneado) return res.redirect('/login');
   if (!rateLimit('publish:' + sesion.name, 3000)) return res.send('Espera un momento antes de publicar de nuevo. <a href="/publish">Volver</a>');
   try {
-    const arc = req.files['archivoMod'] && req.files['archivoMod'][0];
-    const imgs = req.files['imagenesMod'] || [];
-    if (!arc) return res.send('Falta el archivo.');
+    const arc = req.files && req.files['archivoMod'] && req.files['archivoMod'][0];
+    const imgs = (req.files && req.files['imagenesMod']) || [];
+    const linkExterno = (req.body.linkExterno || '').trim();
+    if (!arc && !linkExterno) {
+      return res.send('Subí un archivo o poné un link de descarga. <a href="/publish">Volver</a>');
+    }
+    if (linkExterno && !/^https?:\/\//i.test(linkExterno)) {
+      return res.send('El link debe empezar con http:// o https://. <a href="/publish">Volver</a>');
+    }
     const ts = Date.now();
-    const filePath = `${sesion.name}/${ts}-${arc.originalname}`;
-    await uploadToStorage('mods-files', filePath, arc.buffer, arc.mimetype || 'application/octet-stream');
+    let filePath = '';
+    let nombreReal = '';
+    let peso = 'Link externo';
+    // Preferimos archivo si hay; si no, el link
+    if (arc) {
+      filePath = `${sesion.name}/${ts}-${arc.originalname}`;
+      await uploadToStorage('mods-files', filePath, arc.buffer, arc.mimetype || 'application/octet-stream');
+      nombreReal = arc.originalname;
+      peso = (arc.size / (1024 * 1024)).toFixed(1) + ' MB';
+    } else {
+      filePath = linkExterno;
+      nombreReal = 'link-externo';
+    }
     const rutas = [];
-    for (let i = 0; i < imgs.length; i++) {
+    const maxImgs = Math.min(imgs.length, 4);
+    for (let i = 0; i < maxImgs; i++) {
       const img = imgs[i];
       const p = `${sesion.name}/${ts}-img${i}-${img.originalname}`;
       rutas.push(await uploadToStorage('mods-images', p, img.buffer, img.mimetype));
@@ -686,14 +709,17 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
     const { error } = await supabase.from('mods').insert({
       titulo: req.body.titulo, descripcion: req.body.descripcion, autor: sesion.name,
       version: req.body.version, categoria: req.body.categoria,
-      nombre_archivo_real: arc.originalname, archivo_path: filePath, rutas_imagenes: rutas,
+      nombre_archivo_real: nombreReal, archivo_path: filePath, rutas_imagenes: rutas,
       descargas: 0, likes: 0, usuarios_like: [], comentarios: [], historial_actualizaciones: [],
       fecha_creacion: new Date().toLocaleDateString('es-ES'),
-      peso_archivo: (arc.size / (1024 * 1024)).toFixed(1) + ' MB'
+      peso_archivo: peso
     });
     if (error) throw error;
-    res.redirect('/');
-  } catch (e) { console.error(e); res.status(500).send('Error: ' + e.message); }
+    res.redirect('/mods');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error: ' + e.message + ' <a href="/publish">Volver</a>');
+  }
 });
 
 app.get('/edit-mod/:id', async (req, res) => {
@@ -743,14 +769,17 @@ app.get('/download/:id', async (req, res) => {
     if (!mod || !mod.archivoPath) return res.status(404).send('No encontrado');
     await supabase.from('mods').update({ descargas: (mod.descargas || 0) + 1 }).eq('id', mod.id);
 
-    // Nombre limpio = título del mod (sin id)
+    // Link externo
+    if (/^https?:\/\//i.test(mod.archivoPath)) {
+      return res.redirect(mod.archivoPath);
+    }
+
     const ext = path.extname(mod.archivoPath) || path.extname(data.nombre_archivo_real || '') || '.zip';
     let base = (mod.titulo || data.nombre_archivo_real || 'mod')
       .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 100) || 'mod';
-    // Evitar que quede solo números
     if (/^\d+$/.test(base)) base = 'mod-' + base;
     const filename = base + (ext.startsWith('.') ? ext : '.' + ext);
 
@@ -891,7 +920,7 @@ app.get('/info-disabled', async (req, res) => {
 
       <div class="info-box">
         <h2>Origen del proyecto</h2>
-        <p>El proyecto fue <b>iniciado por @Ellos (them)</b>. Más adelante se discontinuó el hosting original (túnel Cloudflare) y lo continuo @SuperAaron64.</p>
+        <p>El proyecto fue <b>iniciado por @Ellos (them)</b>. Más adelante se discontinuó el hosting original (túnel Cloudflare) y se dejó continuar a la comunidad.</p>
         <p>Esta versión mantiene la idea original y suma persistencia en la nube (Vercel + Supabase), notificaciones, moderación, paginación y más herramientas para la comunidad.</p>
       </div>
 
