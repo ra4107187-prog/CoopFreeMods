@@ -65,6 +65,9 @@ const upload = multer({
   }
 });
 
+function cleanText(str) {
+  return escapeHtml(String(str || '')).replace(/\r\n|\r|\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
+}
 function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -136,6 +139,7 @@ function navbar(sesion, nNotif, extra) {
     <div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div>
     <div class="nav-links">
       <a href="/">Inicio</a>
+      <a href="/mods">Mods</a>
       <a href="/top">⭐ Top 10</a>
       <a href="/foros">💬 Foros</a>
       <a href="/como-instalar">📖 Cómo instalar</a>
@@ -172,7 +176,94 @@ function renderModCards(mods, sesion) {
 }
 
 // ---------- RUTAS ----------
+
 app.get('/', async (req, res) => {
+  try {
+    const sesion = await getSesion(req);
+    const nNotif = await countNotif(sesion.name);
+    const { data: allMods } = await supabase.from('mods').select('*').order('id', { ascending: false }).limit(100);
+    const mods = (allMods || []).map(mapMod);
+    const recientes = mods.slice(0, 5);
+    const top3 = [...mods].sort((a, b) => (b.descargas || 0) - (a.descargas || 0)).slice(0, 3);
+    let forosPop = [];
+    let forosRec = [];
+    try {
+      const { data: temas } = await supabase.from('foro_temas').select('*').order('updated_at', { ascending: false }).limit(30);
+      const lista = temas || [];
+      forosRec = lista.slice(0, 5);
+      forosPop = [...lista].sort((a, b) => (b.vistas || 0) - (a.vistas || 0)).slice(0, 5);
+    } catch (e) { console.error('foros home', e); }
+    const cats = ['Character Select','Dynos','Hangouts / Romhack','Gamemodes','Movesets','Modifiers','Administrative / Utility','Resources','Otros'];
+    const catHtml = cats.map(c =>
+      `<a href="/mods?categoria=${encodeURIComponent(c)}" class="home-cat">${escapeHtml(c)}</a>`
+    ).join('');
+    const miniMod = (m) => {
+      const foto = m.rutasImagenes && m.rutasImagenes[0];
+      const img = foto ? `<img src="${escapeHtml(foto)}" alt="">` : '<div class="home-mod-ph">📦</div>';
+      return `<a href="/mod/${m.id}" class="home-mod-row">
+        <div class="home-mod-thumb">${img}</div>
+        <div>
+          <div class="home-mod-title">${escapeHtml(m.titulo)}</div>
+          <div class="home-mod-meta">@${escapeHtml(m.autor)} · ⬇️ ${m.descargas || 0}</div>
+        </div>
+      </a>`;
+    };
+    const miniForo = (f) =>
+      `<a href="/foros/tema/${f.id}" class="home-foro-row">
+        <span class="home-foro-title">${escapeHtml(f.titulo)}</span>
+        <span class="home-foro-meta">@${escapeHtml(f.autor)} · 👁 ${f.vistas || 0}</span>
+      </a>`;
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Inicio | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container home-page">
+        <div class="home-grid">
+          <div class="home-main">
+            <div class="home-hero">
+              <h1>Bienvenido a <span class="home-accent">Coop Free Mods</span></h1>
+              <p class="home-lead">La biblioteca comunitaria de mods gratis para <b>SM64 Co-op DX</b>, <b>SM64 EX Co-op</b> y <b>DX + EX</b>. Descargá, publicá y compartí personajes, dynos, hangouts, gamemodes y más.</p>
+              <p class="home-lead" style="font-size:14px;color:#9ca3af;">Proyecto iniciado por @Ellos (them) y continuado por la comunidad. Los mods se guardan en la nube y no se pierden al reiniciar.</p>
+            </div>
+            <div class="home-section">
+              <h2>🆕 Mods más recientes</h2>
+              <div class="home-list">${recientes.map(miniMod).join('') || '<p style="color:#9ca3af;">Aún no hay mods.</p>'}</div>
+            </div>
+            <div class="home-section">
+              <h2>💬 Foros recientes</h2>
+              <div class="home-list">${forosRec.map(miniForo).join('') || '<p style="color:#9ca3af;">Sin temas aún.</p>'}</div>
+            </div>
+          </div>
+          <aside class="home-side">
+            <div class="home-side-box">
+              <h3>📁 Categorías</h3>
+              <div class="home-cats">${catHtml}</div>
+            </div>
+            <div class="home-side-box">
+              <h3>🏆 Top 3 descargas</h3>
+              <div class="home-list">${top3.map(miniMod).join('') || '<p style="color:#9ca3af;">—</p>'}</div>
+            </div>
+            <div class="home-side-box">
+              <h3>🔥 Foros populares</h3>
+              <div class="home-list">${forosPop.map(miniForo).join('') || '<p style="color:#9ca3af;">—</p>'}</div>
+            </div>
+          </aside>
+        </div>
+        <div class="home-cta">
+          <a href="/mods" class="btn-red">Ver Mods</a>
+          <a href="/top" class="btn-blue">Top 10</a>
+          <a href="/foros" class="btn-blue">Foros</a>
+          <a href="/como-instalar" class="btn-gray" style="padding:10px 16px;font-size:14px;">Cómo instalar</a>
+          <a href="/discord" class="discord-float" style="margin:0;">Discord</a>
+        </div>
+      </div>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error');
+  }
+});
+
+
+app.get('/mods', async (req, res) => {
   try {
     const sesion = await getSesion(req);
     const nNotif = await countNotif(sesion.name);
@@ -188,10 +279,10 @@ app.get('/', async (req, res) => {
       return t && c && v;
     });
     const pg = paginateList(mods, req.query.page, 30);
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Inicio | Coop Free Mods</title>${estilosCSS}</head><body>
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mods | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
-        <form action="/" method="GET" class="filter-bar">
+        <form action="/mods" method="GET" class="filter-bar">
           <input type="text" name="buscar" placeholder="Buscar mods..." value="${escapeHtml(req.query.buscar || '')}">
           <select name="version">
             <option value="Todas">Todas las versiones</option>
@@ -215,7 +306,7 @@ app.get('/', async (req, res) => {
         </form>
         <p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${pg.total} mods encontrados · Página ${pg.page} de ${pg.totalPages}</p>
         <div class="grid">${renderModCards(pg.slice, sesion)}</div>
-        ${renderPagination('/', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria })}
+        ${renderPagination('/mods', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria })}
       </div>
       <div class="discord-float-wrap">
         <a href="/discord" target="_blank" rel="noopener" class="discord-float" title="Unite al Discord">Discord</a>
@@ -361,10 +452,10 @@ app.get('/mod/:id', async (req, res) => {
       const replies = repliesOf(c.id).map(r => {
         const delR = canDelComment(r) ? `<a href="/delete-comment/${mod.id}/${encodeURIComponent(r.id)}" class="btn-delete">Eliminar</a>` : '';
         return `<div class="comment-reply"><a href="/user/${escapeHtml(r.usuario)}" class="author" style="font-size:12px;">@${escapeHtml(r.usuario)}</a> ${delR}
-          <p style="margin:4px 0 0;font-size:12px;color:#9ca3af;">${escapeHtml(r.texto)}</p></div>`;
+          <p style="margin:4px 0 0;font-size:12px;color:#9ca3af;">${cleanText(r.texto)}</p></div>`;
       }).join('');
       return `<div class="comment-box"><a href="/user/${escapeHtml(c.usuario)}" class="author">@${escapeHtml(c.usuario)}</a> ${del}
-        <p style="margin:5px 0 0;font-size:14px;color:#ced4da;">${escapeHtml(c.texto)}</p>${replies}${replyForm}</div>`;
+        <p style="margin:5px 0 0;font-size:14px;color:#ced4da;">${cleanText(c.texto)}</p>${replies}${replyForm}</div>`;
     }).join('') || '<p style="color:#9ca3af;">No hay comentarios.</p>';
 
     const canEdit = sesion.name === mod.autor;
@@ -1098,7 +1189,7 @@ app.get('/foros/tema/:id', async (req, res) => {
         ${del}
         <a href="/user/${escapeHtml(r.autor)}" class="author" style="${isChild ? 'font-size:12px;' : ''}">@${escapeHtml(r.autor)}</a>
         <span style="font-size:11px;color:#6b7280;margin-left:8px;">${rf}</span>
-        <p style="margin:8px 0 0;white-space:pre-wrap;${font}">${escapeHtml(r.contenido)}</p>
+        <p style="margin:8px 0 0;${font}">${cleanText(r.contenido)}</p>
         ${subReply}
         ${kids}
       </div>`;
@@ -1127,7 +1218,7 @@ app.get('/foros/tema/:id', async (req, res) => {
             </div>
             <div>${modBtns}</div>
           </div>
-          <p style="margin-top:16px;color:#ced4da;white-space:pre-wrap;">${escapeHtml(tema.contenido)}</p>
+          <p style="margin-top:16px;color:#ced4da;">${escapeHtml(tema.contenido)}</p>
         </div>
         <div class="info-box"><h2>Respuestas (${(respuestas||[]).length})</h2>${repsHtml}</div>
         <div class="info-box"><h2>Responder</h2>${replyBox}</div>
