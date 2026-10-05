@@ -175,6 +175,23 @@ function renderModCards(mods, sesion) {
   }).join('');
 }
 
+
+function pageError(res, status, titulo, mensaje, sesion, nNotif) {
+  const nav = (sesion && typeof navbar === 'function') ? navbar(sesion, nNotif || 0) : '';
+  res.status(status || 500).send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${titulo || 'Error'} | Coop Free Mods</title>${estilosCSS}</head><body>
+    ${nav}
+    <div class="main-container" style="max-width:560px;">
+      <div class="form-box" style="margin-top:40px;text-align:center;">
+        <h1 style="color:white;margin:0 0 12px 0;">${titulo || 'Error'}</h1>
+        <p style="color:#9ca3af;margin:0 0 24px 0;">${mensaje || 'Algo salió mal.'}</p>
+        <a href="/" class="btn-red">Inicio</a>
+        <a href="/mods" class="btn-blue" style="margin-left:8px;">Mods</a>
+      </div>
+    </div>
+  </body></html>`);
+}
+
+
 // ---------- RUTAS ----------
 
 app.get('/', async (req, res) => {
@@ -258,7 +275,7 @@ app.get('/', async (req, res) => {
     </body></html>`);
   } catch (e) {
     console.error(e);
-    res.status(500).send('Error');
+    pageError(res, 500, 'Error', 'No se pudo cargar la página.', sesion, nNotif);
   }
 });
 
@@ -314,7 +331,7 @@ app.get('/mods', async (req, res) => {
     </body></html>`);
   } catch (err) {
     console.error(err);
-    res.status(500).send('<p class="error-msg">Error al cargar mods.</p>');
+    pageError(res, 500, 'Error', 'No se pudieron cargar los mods.', sesion, nNotif);
   }
 });
 
@@ -374,7 +391,7 @@ app.get('/top', async (req, res) => {
         <div class="grid">${tarjetas}</div>
       </div>
     </body></html>`);
-  } catch (e) { console.error(e); res.status(500).send('Error'); }
+  } catch (e) { console.error(e); pageError(res, 500, 'Error', 'No se pudo cargar la página.', sesion, nNotif); }
 });
 
 app.get('/favoritos', async (req, res) => {
@@ -500,7 +517,7 @@ app.get('/mod/:id', async (req, res) => {
         </div>
       </div>
     </body></html>`);
-  } catch (e) { console.error(e); res.status(500).send('Error'); }
+  } catch (e) { console.error(e); pageError(res, 500, 'Error', 'No se pudo cargar la página.', sesion, nNotif); }
 });
 
 app.get('/delete-mod/:id', async (req, res) => {
@@ -593,7 +610,7 @@ app.get('/user/:username', async (req, res) => {
         <div class="grid">${renderModCards(userMods, sesion)}</div>
       </div>
     </body></html>`);
-  } catch (e) { console.error(e); res.status(500).send('Error'); }
+  } catch (e) { console.error(e); pageError(res, 500, 'Error', 'No se pudo cargar la página.', sesion, nNotif); }
 });
 
 app.get('/ban/:username', async (req, res) => {
@@ -766,7 +783,7 @@ app.get('/download/:id', async (req, res) => {
   try {
     const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
     const mod = mapMod(data);
-    if (!mod || !mod.archivoPath) return res.status(404).send('No encontrado');
+    if (!mod || !mod.archivoPath) return pageError(res, 404, 'No encontrado', 'Ese recurso no existe.', await getSesion(req), 0);
     await supabase.from('mods').update({ descargas: (mod.descargas || 0) + 1 }).eq('id', mod.id);
 
     // Link externo
@@ -1015,9 +1032,10 @@ app.get('/como-instalar', async (req, res) => {
         <p>En la ficha de cada mod mirá <b>Versión</b> (DX, EX o DX + EX) y <b>Categoría</b> para saber si es compatible con tu juego y dónde va el archivo.</p>
       </div>
 
-      <p style="text-align:center;margin:30px 0;">
-        <a href="/" class="btn-red">Ver mods</a>
-        <a href="/top" class="btn-blue" style="margin-left:10px;">Top 10</a>
+      <p style="text-align:center;margin:30px 0;display:flex;flex-wrap:wrap;gap:10px;justify-content:center;">
+        <a href="/mods" class="btn-red">Ver mods</a>
+        <a href="/top" class="btn-blue">Top 10</a>
+        <a href="/discord" class="discord-float" style="margin:0;">Discord</a>
       </p>
     </div>
   </body></html>`);
@@ -1124,7 +1142,7 @@ app.get('/foros', async (req, res) => {
     </body></html>`);
   } catch (e) {
     console.error(e);
-    res.status(500).send('Error en foros. ¿Ejecutaste el SQL de foros en Supabase? <a href="/">Inicio</a>');
+    pageError(res, 500, 'Error en foros', 'No se pudieron cargar los foros. ¿Ejecutaste el SQL de foros en Supabase?', sesion, nNotif);
   }
 });
 
@@ -1169,13 +1187,26 @@ app.get('/foros/tema/:id', async (req, res) => {
     const nNotif = await countNotif(sesion.name);
     const id = parseInt(req.params.id);
     const { data: tema, error } = await supabase.from('foro_temas').select('*').eq('id', id).single();
-    if (error || !tema) return res.status(404).send('Tema no encontrado. <a href="/foros">Foros</a>');
-    // Contar visita 1 vez por sesión (cookie)
-    const seenKey = 'foro_visto_' + id;
-    if (!req.cookies || !req.cookies[seenKey]) {
-      await supabase.from('foro_temas').update({ vistas: (tema.vistas || 0) + 1 }).eq('id', id);
-      tema.vistas = (tema.vistas || 0) + 1;
-      res.cookie(seenKey, '1', { maxAge: 1000 * 60 * 60 * 12, httpOnly: true, sameSite: 'lax' });
+    if (error || !tema) return pageError(res, 404, 'Tema no encontrado', 'Ese tema no existe o fue eliminado.', sesion, nNotif);
+    // Contar visita 1 vez por día (cookie lista de ids)
+    let vistos = [];
+    try {
+      vistos = JSON.parse(req.cookies.foro_vistos || '[]');
+      if (!Array.isArray(vistos)) vistos = [];
+    } catch (e) { vistos = []; }
+    if (!vistos.includes(id)) {
+      const nuevas = (tema.vistas || 0) + 1;
+      await supabase.from('foro_temas').update({ vistas: nuevas }).eq('id', id);
+      tema.vistas = nuevas;
+      vistos.push(id);
+      if (vistos.length > 80) vistos = vistos.slice(-80);
+      res.cookie('foro_vistos', JSON.stringify(vistos), {
+        maxAge: 1000 * 60 * 60 * 24,
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: !!process.env.VERCEL
+      });
     }
     const { data: respuestas } = await supabase.from('foro_respuestas').select('*').eq('tema_id', id).order('created_at', { ascending: true });
     const canMod = sesion.esMod;
@@ -1235,7 +1266,7 @@ app.get('/foros/tema/:id', async (req, res) => {
               ${tema.fijado ? '<span class="top-badge">Fijado</span>' : ''}
               ${tema.cerrado ? '<span class="banned-badge">Cerrado</span>' : ''}
               <h1 style="color:white;margin:10px 0;">${escapeHtml(tema.titulo)}</h1>
-              <p style="color:#9ca3af;font-size:13px;margin:0;">por <a href="/user/${escapeHtml(tema.autor)}" class="author">@${escapeHtml(tema.autor)}</a> · ${fecha} · 👁 ${(tema.vistas||0)+1}</p>
+              <p style="color:#9ca3af;font-size:13px;margin:0;">por <a href="/user/${escapeHtml(tema.autor)}" class="author">@${escapeHtml(tema.autor)}</a> · ${fecha} · 👁 ${tema.vistas || 0}</p>
             </div>
             <div>${modBtns}</div>
           </div>
@@ -1245,7 +1276,7 @@ app.get('/foros/tema/:id', async (req, res) => {
         <div class="info-box"><h2>Responder</h2>${replyBox}</div>
       </div>
     </body></html>`);
-  } catch (e) { console.error(e); res.status(500).send('Error'); }
+  } catch (e) { console.error(e); pageError(res, 500, 'Error', 'No se pudo cargar la página.', sesion, nNotif); }
 });
 
 app.post('/foros/responder/:id', async (req, res) => {
@@ -1317,6 +1348,16 @@ app.get('/foros/cerrar/:id', async (req, res) => {
   res.redirect('/foros/tema/' + id);
 });
 
+
+app.use(async (req, res) => {
+  try {
+    const sesion = await getSesion(req);
+    const nNotif = await countNotif(sesion.name);
+    pageError(res, 404, 'Página no encontrada', 'No existe: ' + escapeHtml(req.path), sesion, nNotif);
+  } catch (e) {
+    pageError(res, 404, 'Página no encontrada', 'La ruta no existe.', null, 0);
+  }
+});
 
 module.exports = app;
 if (require.main === module) {
