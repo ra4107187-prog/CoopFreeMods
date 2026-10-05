@@ -220,8 +220,8 @@ app.get('/', async (req, res) => {
           <div class="home-main">
             <div class="home-hero">
               <h1>Bienvenido a <span class="home-accent">Coop Free Mods</span></h1>
-              <p class="home-lead">La biblioteca comunitaria de mods gratis para <b>SM64 Co-op DX</b>, <b>SM64 EX Co-op</b> y <b>DX + EX</b>. Descargá, publicá y compartí personajes, dynos, hangouts, gamemodes y más.</p>
-              <p class="home-lead" style="font-size:14px;color:#9ca3af;">Proyecto iniciado por @Ellos (them) y continuado por la comunidad. Los mods se guardan en la nube y no se pierden al reiniciar.</p>
+              <p class="home-lead">La biblioteca comunitaria hispana de mods gratis para <b>SM64 Co-op DX</b>, <b>SM64 EX Co-op</b> y <b>DX + EX</b>. Descargá, publicá y compartí personajes, dynos, hangouts, gamemodes y más.</p>
+              <p class="home-lead" style="font-size:14px;color:#9ca3af;">Proyecto iniciado por @Ellos (them) y continuado por @SuperAaron64. Los mods se guardan en la nube y no se pierden al reiniciar.</p>
             </div>
             <div class="home-section">
               <h2>🆕 Mods más recientes</h2>
