@@ -173,21 +173,49 @@ function navbar(sesion, nNotif, extra) {
       var m = localStorage.getItem('cfm_music') === '1';
       if (c) document.documentElement.classList.add('cfm-sm64-cursor');
       else document.documentElement.classList.remove('cfm-sm64-cursor');
+
       var audio = document.getElementById('cfm-bg-music');
       if (!audio) {
         audio = document.createElement('audio');
         audio.id = 'cfm-bg-music';
         audio.loop = true;
-        audio.preload = 'none';
+        audio.preload = 'auto';
         audio.src = '/public/bg-music.mp3';
         audio.volume = 0.35;
         document.body.appendChild(audio);
       }
+
+      // Continuar desde donde iba (no reiniciar al cambiar de página)
+      var saved = parseFloat(localStorage.getItem('cfm_music_t') || '0');
+      function seekSaved() {
+        try {
+          if (!isNaN(saved) && saved > 0.25) {
+            var dur = audio.duration;
+            if (!dur || isNaN(dur) || saved < dur - 0.4) audio.currentTime = saved;
+          }
+        } catch (e) {}
+      }
+      audio.addEventListener('loadedmetadata', seekSaved);
+      audio.addEventListener('canplay', function once() { seekSaved(); audio.removeEventListener('canplay', once); });
+      seekSaved();
+
+      function saveTime() {
+        try {
+          if (audio) localStorage.setItem('cfm_music_t', String(audio.currentTime || 0));
+        } catch (e) {}
+      }
+      setInterval(saveTime, 800);
+      document.addEventListener('visibilitychange', function(){ if (document.hidden) saveTime(); });
+      window.addEventListener('pagehide', saveTime);
+      window.addEventListener('beforeunload', saveTime);
+
       if (m) {
-        var p = audio.play();
-        if (p && p.catch) p.catch(function(){});
+        seekSaved();
+        var pr = audio.play();
+        if (pr && pr.catch) pr.catch(function(){});
       } else {
         audio.pause();
+        saveTime();
       }
     } catch(e) {}
   })();
@@ -1407,7 +1435,7 @@ app.get('/config', async (req, res) => {
         <label class="config-row">
           <span>
             <b style="color:white;">Cursor SM64</b><br>
-            <span style="color:#9ca3af;font-size:13px;">Cambia el cursor por uno estilo Super Mario 64.</span>
+            <span style="color:#9ca3af;font-size:13px;">Cambia el cursor por uno estilo Super Mario 64 (la punta del PNG debe estar arriba a la izquierda).</span>
           </span>
           <input type="checkbox" id="optCursor" style="width:auto;transform:scale(1.3);">
         </label>
