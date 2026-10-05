@@ -221,7 +221,7 @@ app.get('/', async (req, res) => {
             <div class="home-hero">
               <h1>Bienvenido a <span class="home-accent">Coop Free Mods</span></h1>
               <p class="home-lead">La biblioteca comunitaria de mods gratis para <b>SM64 Co-op DX</b>, <b>SM64 EX Co-op</b> y <b>DX + EX</b>. Descargá, publicá y compartí personajes, dynos, hangouts, gamemodes y más.</p>
-              <p class="home-lead" style="font-size:14px;color:#9ca3af;">Proyecto iniciado por @Ellos (them) y continuado por la comunidad. Los mods se guardan en la nube y no se pierden al reiniciar.</p>
+              <p class="home-lead" style="font-size:14px;color:#9ca3af;">Proyecto iniciado por @Ellos (them) y continuado por @SuperAaron64. Los mods se guardan en la nube y no se pierden al reiniciar.</p>
             </div>
             <div class="home-section">
               <h2>🆕 Mods más recientes</h2>
@@ -980,8 +980,8 @@ app.get('/como-instalar', async (req, res) => {
       <p style="color:#9ca3af;margin-bottom:28px;">Guía rápida para usar los mods de SM64 Co-op DX y SM64 EX Co-op.</p>
 
       <div class="info-box">
-        <h2>1. Tené el juego base</h2>
-        <p>Necesitás <b>SM64 Co-op DX</b> o <b>SM64 EX Co-op</b> ya instalado y funcionando en tu PC.</p>
+        <h2>1. Tenér el juego base</h2>
+        <p>Necesitás <b>SM64 Co-op DX</b> o <b>SM64 EX Co-op</b> ya instalado y funcionando en tu PC o Android.</p>
         <p>Si aún no lo tenés, buscá la versión oficial de la comunidad (Discord / GitHub del proyecto co-op).</p>
       </div>
 
@@ -995,7 +995,7 @@ app.get('/como-instalar', async (req, res) => {
       <div class="info-box">
         <h2>3. Instalación típica (archivo .zip)</h2>
         <p>1. Descomprimí el .zip (clic derecho → Extraer)<br>
-        2. Abrí la carpeta del juego Co-op (donde está el ejecutable)<br>
+        2. Abrí la carpeta del juego Co-op (donde está el ejecutable o en Android Ex Coop: com.owokitty.sm64excoop, Coop Dx: com.maniscat2.sm64coopdx)<br>
         3. Buscá la carpeta de mods (suele llamarse <b>mods</b>, <b>dynos</b> o similar según el tipo)<br>
         4. Copiá ahí la carpeta o los archivos del mod<br>
         5. Reiniciá el juego si ya estaba abierto</p>
@@ -1003,15 +1003,7 @@ app.get('/como-instalar', async (req, res) => {
       </div>
 
       <div class="info-box">
-        <h2>4. Según el tipo de mod</h2>
-        <p>• <b>Character Select / Dynos</b> — suelen ir en carpetas de personajes o dynos<br>
-        • <b>Movesets / Modifiers / Gamemodes</b> — a menudo en mods o scripts<br>
-        • <b>Resources</b> — scripts LUA u otros recursos<br>
-        • <b>Hangouts / Romhack</b> — pueden requerir pasos extra (leé la descripción del mod)</p>
-      </div>
-
-      <div class="info-box">
-        <h2>5. Problemas frecuentes</h2>
+        <h2>4. Problemas frecuentes</h2>
         <p>• <b>No aparece el mod</b> — revisá que esté en la carpeta correcta y reiniciá el juego<br>
         • <b>El juego crashea</b> — probá sin otros mods, o mirá si es solo DX / solo EX / DX+EX<br>
         • <b>Archivo dañado</b> — volvé a descargarlo desde la web<br>
