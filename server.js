@@ -190,6 +190,7 @@ function navbar(sesion, nNotif, extra) {
         }, true);
       }
 
+
       var audio = document.getElementById('cfm-bg-music');
       if (!audio) {
         audio = document.createElement('audio');
@@ -358,7 +359,28 @@ app.get('/', async (req, res) => {
           <a href="/foros" class="btn-blue">Foros</a>
           <a href="/como-instalar" class="btn-gray" style="padding:10px 16px;font-size:14px;">Cómo instalar</a>
           <a href="/discord" class="discord-float" style="margin:0;">Discord</a>
+          <span id="cfm-egg-zone" title="" style="display:inline-block;width:28px;height:28px;margin-left:4px;vertical-align:middle;opacity:0.15;border-radius:6px;background:#5865F2;cursor:default;"></span>
+          <a href="/jugar-sm64" id="cfm-egg-sm64" style="display:none;margin:0;background:#e11d48;color:#fff;font-weight:800;padding:12px 16px;border-radius:999px;text-decoration:none;box-shadow:0 6px 20px rgba(225,29,72,0.45);">🍄 Jugar SM64</a>
         </div>
+        <script>
+        (function(){
+          var zone = document.getElementById('cfm-egg-zone');
+          var btn = document.getElementById('cfm-egg-sm64');
+          if (!zone || !btn) return;
+          var last = 0;
+          zone.addEventListener('click', function(e) {
+            e.preventDefault();
+            var now = Date.now();
+            if (now - last < 500) {
+              last = 0;
+              btn.style.display = 'inline-block';
+              zone.style.display = 'none';
+            } else {
+              last = now;
+            }
+          });
+        })();
+        </script>
       </div>
     </body></html>`);
   } catch (e) {
@@ -1066,7 +1088,8 @@ app.get('/info-disabled', async (req, res) => {
       </div>
 
       <p style="text-align:center;margin:30px 0;">
-        <a href="/" class="btn-red">Volver al inicio</a>
+        <a href="https://notan127.github.io/SM64-PC-Port-WebGL/classic/" target="_blank" rel="noopener" class="btn-blue">Abrir en pestaña nueva</a>
+        <a href="/" class="btn-red" style="margin-left:8px;">Volver al inicio</a>
         <a href="/register" class="btn-blue" style="margin-left:10px;">Crear cuenta</a>
       </p>
     </div>
@@ -1436,6 +1459,37 @@ app.get('/foros/cerrar/:id', async (req, res) => {
   res.redirect('/foros/tema/' + id);
 });
 
+
+
+
+app.get('/jugar-sm64', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  // Port web opcional en public/sm64/ — el dueño del sitio debe añadirlo legalmente
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Jugar SM64 | Coop Free Mods</title>${estilosCSS}
+  <style>
+    .sm64-wrap { max-width: 960px; margin: 20px auto; padding: 0 12px 40px; }
+    .sm64-frame {
+      width: 100%; height: min(70vh, 640px);
+      border: 2px solid #2d3139; border-radius: 12px; background: #000;
+    }
+    .sm64-note { color: #9ca3af; font-size: 13px; margin-top: 12px; line-height: 1.5; }
+  </style>
+  </head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="sm64-wrap">
+      <h1 style="color:white;margin:0 0 8px 0;">🍄 SM64 en el navegador</h1>
+      <p style="color:#9ca3af;margin:0 0 16px 0;">Easter egg de Coop Free Mods. Controles típicos: teclado / gamepad según el port.</p>
+      <iframe class="sm64-frame" src="https://notan127.github.io/SM64-PC-Port-WebGL/classic/" title="SM64 Web Port" allow="gamepad *;"></iframe>
+      <p class="sm64-note">
+        Port web embebido desde un SM64 PC Port WebGL público. Si el iframe no carga, el sitio externo puede bloquear embeds: en ese caso usá el botón de abrir en pestaña nueva. Respeta los derechos de Nintendo / autores del port.
+        <br><br>
+        <a href="/" class="btn-red">Volver al inicio</a>
+        <a href="/mods" class="btn-blue" style="margin-left:8px;">Mods</a>
+      </p>
+    </div>
+  </body></html>`);
+});
 
 
 app.get('/config', async (req, res) => {
