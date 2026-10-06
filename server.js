@@ -160,7 +160,6 @@ function navbar(sesion, nNotif, extra) {
         <a href="/top">⭐ Top 10</a>
         <a href="/foros">💬 Foros</a>
         <a href="/como-instalar">📖 Cómo instalar</a>
-        <a href="/usuarios">👥 Usuarios</a>
         <a href="/config">⚙️ Config</a>
         ${mid}
         ${extra || ''}
@@ -169,7 +168,7 @@ function navbar(sesion, nNotif, extra) {
     </div>
     <div class="navbar-row navbar-row-sub">
       <div class="nav-links nav-links-sub">
-        <!-- Futuras secciones de actualizaciones -->
+        <a href="/usuarios">👥 Usuarios</a>
       </div>
     </div>
   </div>
