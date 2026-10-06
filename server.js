@@ -1509,9 +1509,6 @@ app.get('/jugar-sm64', async (req, res) => {
         <div><b>C-Stick / cámara</b> — flechas</div>
         <div style="grid-column:1/-1;color:#9ca3af;font-size:12px;margin-top:4px;">También podés usar un gamepad. En el port a veces se pueden cambiar los binds.</div>
       </div>
-      <p style="margin:0 0 12px 0;">
-        <a href="https://notan127.github.io/SM64-PC-Port-WebGL/classic/" target="_blank" rel="noopener" class="btn-red" style="font-size:16px;padding:14px 22px;">▶ Jugar SM64</a>
-      </p>
       <iframe class="sm64-frame" src="https://notan127.github.io/SM64-PC-Port-WebGL/classic/" title="SM64 Web Port" allow="fullscreen; gamepad *; autoplay"></iframe>
       <p class="sm64-note">
         Si el juego pide un click dentro del recuadro, es el navegador (política de audio/WebGL): un click ahí y arranca. No lo controlamos desde Coop Free Mods.
