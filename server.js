@@ -359,26 +359,38 @@ app.get('/', async (req, res) => {
           <a href="/foros" class="btn-blue">Foros</a>
           <a href="/como-instalar" class="btn-gray" style="padding:10px 16px;font-size:14px;">Cómo instalar</a>
           <a href="/discord" class="discord-float" style="margin:0;">Discord</a>
-          <span id="cfm-egg-zone" title="" style="display:inline-block;width:28px;height:28px;margin-left:4px;vertical-align:middle;opacity:0.15;border-radius:6px;background:#5865F2;cursor:default;"></span>
-          <a href="/jugar-sm64" id="cfm-egg-sm64" style="display:none;margin:0;background:#e11d48;color:#fff;font-weight:800;padding:12px 16px;border-radius:999px;text-decoration:none;box-shadow:0 6px 20px rgba(225,29,72,0.45);">🍄 Jugar SM64</a>
+          <button type="button" id="cfm-egg-zone" aria-label="egg" style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;margin-left:6px;padding:0;border:1px solid #374151;border-radius:8px;background:#1f2937;color:#4b5563;font-size:16px;line-height:1;cursor:pointer;vertical-align:middle;">·</button>
+          <a href="/jugar-sm64" id="cfm-egg-sm64" style="display:none;margin:0;background:#e11d48;color:#fff !important;font-weight:800;padding:12px 16px;border-radius:999px;text-decoration:none;box-shadow:0 6px 20px rgba(225,29,72,0.45);">🍄 Jugar SM64</a>
         </div>
         <script>
         (function(){
           var zone = document.getElementById('cfm-egg-zone');
           var btn = document.getElementById('cfm-egg-sm64');
           if (!zone || !btn) return;
+          function reveal() {
+            try { localStorage.setItem('cfm_egg_sm64', '1'); } catch(e) {}
+            btn.style.display = 'inline-block';
+            zone.style.display = 'none';
+          }
+          try {
+            if (localStorage.getItem('cfm_egg_sm64') === '1') reveal();
+          } catch(e) {}
           var last = 0;
-          zone.addEventListener('click', function(e) {
-            e.preventDefault();
-            var now = Date.now();
-            if (now - last < 500) {
-              last = 0;
-              btn.style.display = 'inline-block';
-              zone.style.display = 'none';
-            } else {
-              last = now;
-            }
+          zone.addEventListener('dblclick', function(e) {
+            e.preventDefault(); e.stopPropagation(); reveal();
           });
+          zone.addEventListener('click', function(e) {
+            e.preventDefault(); e.stopPropagation();
+            var now = Date.now();
+            if (now - last < 600) { last = 0; reveal(); }
+            else last = now;
+          });
+          var lastTouch = 0;
+          zone.addEventListener('touchend', function(e) {
+            var now = Date.now();
+            if (now - lastTouch < 600) { lastTouch = 0; e.preventDefault(); reveal(); }
+            else lastTouch = now;
+          }, {passive:false});
         })();
         </script>
       </div>
@@ -1465,29 +1477,60 @@ app.get('/foros/cerrar/:id', async (req, res) => {
 app.get('/jugar-sm64', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  // Port web opcional en public/sm64/ — el dueño del sitio debe añadirlo legalmente
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Jugar SM64 | Coop Free Mods</title>${estilosCSS}
   <style>
     .sm64-wrap { max-width: 960px; margin: 20px auto; padding: 0 12px 40px; }
     .sm64-frame {
-      width: 100%; height: min(70vh, 640px);
+      width: 100%; height: min(75vh, 720px);
       border: 2px solid #2d3139; border-radius: 12px; background: #000;
     }
     .sm64-note { color: #9ca3af; font-size: 13px; margin-top: 12px; line-height: 1.5; }
+    .sm64-controls {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px;
+      background: rgba(31,35,43,0.95); border: 1px solid #2d3139; border-radius: 12px;
+      padding: 14px 18px; margin: 0 0 16px 0; color: #ced4da; font-size: 13px;
+    }
+    .sm64-controls h3 { grid-column: 1 / -1; margin: 0 0 6px 0; color: white; font-size: 15px; }
+    .sm64-controls b { color: #93c5fd; }
+    @media (max-width: 600px) { .sm64-controls { grid-template-columns: 1fr; } }
   </style>
   </head><body>
     ${navbar(sesion, nNotif)}
     <div class="sm64-wrap">
       <h1 style="color:white;margin:0 0 8px 0;">🍄 SM64 en el navegador</h1>
-      <p style="color:#9ca3af;margin:0 0 16px 0;">Easter egg de Coop Free Mods. Controles típicos: teclado / gamepad según el port.</p>
-      <iframe class="sm64-frame" src="https://notan127.github.io/SM64-PC-Port-WebGL/classic/" title="SM64 Web Port" allow="gamepad *;"></iframe>
+      <p style="color:#9ca3af;margin:0 0 12px 0;">Easter egg · Port classic (notan127). La música de la web se pausa acá.</p>
+      <div class="sm64-controls">
+        <h3>⌨️ Controles de teclado</h3>
+        <div><b>Movimiento</b> — W A S D</div>
+        <div><b>A (salto)</b> — X</div>
+        <div><b>B (ataque)</b> — C</div>
+        <div><b>Z (agachar)</b> — Espacio</div>
+        <div><b>Start</b> — Enter</div>
+        <div><b>C-Stick / cámara</b> — flechas</div>
+        <div style="grid-column:1/-1;color:#9ca3af;font-size:12px;margin-top:4px;">También podés usar un gamepad. En el port a veces se pueden cambiar los binds.</div>
+      </div>
+      <p style="margin:0 0 12px 0;">
+        <a href="https://notan127.github.io/SM64-PC-Port-WebGL/classic/" target="_blank" rel="noopener" class="btn-red" style="font-size:16px;padding:14px 22px;">▶ Jugar SM64</a>
+      </p>
+      <iframe class="sm64-frame" src="https://notan127.github.io/SM64-PC-Port-WebGL/classic/" title="SM64 Web Port" allow="fullscreen; gamepad *; autoplay"></iframe>
       <p class="sm64-note">
-        Port web embebido desde un SM64 PC Port WebGL público. Si el iframe no carga, el sitio externo puede bloquear embeds: en ese caso usá el botón de abrir en pestaña nueva. Respeta los derechos de Nintendo / autores del port.
+        Si el juego pide un click dentro del recuadro, es el navegador (política de audio/WebGL): un click ahí y arranca. No lo controlamos desde Coop Free Mods.
         <br><br>
-        <a href="/" class="btn-red">Volver al inicio</a>
-        <a href="/mods" class="btn-blue" style="margin-left:8px;">Mods</a>
+        <a href="/" class="btn-blue">Volver al inicio</a>
+        <a href="/mods" class="btn-gray" style="margin-left:8px;padding:10px 16px;">Mods</a>
       </p>
     </div>
+    <script>
+    (function(){
+      try {
+        localStorage.setItem('cfm_egg_sm64', '1');
+        // Pausar música de la web
+        localStorage.setItem('cfm_music', '0');
+        var audio = document.getElementById('cfm-bg-music');
+        if (audio) { audio.pause(); }
+      } catch(e) {}
+    })();
+    </script>
   </body></html>`);
 });
 
