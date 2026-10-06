@@ -1669,6 +1669,15 @@ app.get('/ia-mods', async (req, res) => {
     }
     .ia-copy-btn:hover { background: #1d4ed8; }
     .ia-copy-btn.copied { background: #16a34a; }
+
+    .ia-table-wrap { overflow-x: auto; margin: 10px 0; }
+    .ia-msg.bot table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    .ia-msg.bot th, .ia-msg.bot td { border: 1px solid #374151; padding: 7px 9px; text-align: left; vertical-align: top; }
+    .ia-msg.bot th { background: #111827; color: #fbbf24; }
+    .ia-msg.bot td { color: #e5e7eb; }
+    .ia-hr { border: none; border-top: 1px solid #374151; margin: 12px 0; }
+    .ia-msg.bot p { margin: 0 0 8px 0; }
+
     .ia-msg.bot pre { margin-top: 0; padding-top: 28px; }
 
     .ia-msg.bot pre code { background: none; padding: 0; color: #e5e7eb; display: block; white-space: pre; }
@@ -1700,7 +1709,7 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
     if (!messages.length) return res.status(400).json({ error: 'Mensaje vacío' });
     const system = {
       role: 'system',
-      content: 'Tu nombre es ToadCode, asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. No inventes APIs que no existan; si no estás seguro, decilo.'
+      content: 'Tu nombre es ToadCode, asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. Usá markdown: bloques de código con triple backtick y lenguaje lua, tablas markdown simples, negritas con **. No uses etiquetas HTML como <br>. No inventes APIs que no existan; si no estás seguro, decilo.'
     };
     // Preferir Groq (console.groq.com) — keys gsk_...
     const apiKey = process.env.GROQ_API_KEY || process.env.XAI_API_KEY || process.env.OPENAI_API_KEY || '';
