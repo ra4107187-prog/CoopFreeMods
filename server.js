@@ -139,9 +139,7 @@ function authLinks(sesion, nNotif) {
   }
   const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
-    <span style="color:white;font-size:14px;">Hola,
-      <a href="/user/${escapeHtml(sesion.name)}" style="color:white;font-weight:bold;text-decoration:none;">${escapeHtml(sesion.name)}</a>${modBadge}
-    </span>
+    <a href="/user/${escapeHtml(sesion.name)}" style="color:white;font-weight:bold;text-decoration:none;font-size:14px;">${escapeHtml(sesion.name)}</a>${modBadge}
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
 }
 function leftUserLinks(sesion, nNotif) {
@@ -161,6 +159,7 @@ function navbar(sesion, nNotif, extra) {
       <a href="/top">⭐ Top 10</a>
       <a href="/foros">💬 Foros</a>
       <a href="/como-instalar">📖 Cómo instalar</a>
+      <a href="/usuarios">👥 Usuarios</a>
       <a href="/config">⚙️ Config</a>
       ${mid}
       ${extra || ''}
@@ -1755,6 +1754,103 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Error interno de IA' });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+app.get('/usuarios', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  try {
+    const q = String(req.query.q || '').trim().toLowerCase();
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const perPage = 30;
+    let { data: users, error } = await supabase.from('usuarios').select('usuario,descripcion,fecha_registro,seguidores,banneado').order('fecha_registro', { ascending: false }).limit(500);
+    if (error) throw error;
+    users = users || [];
+    if (q) users = users.filter(u => (u.usuario || '').toLowerCase().includes(q));
+    const total = users.length;
+    const pages = Math.max(1, Math.ceil(total / perPage));
+    const slice = users.slice((page - 1) * perPage, page * perPage);
+
+    // mod counts
+    const { data: mods } = await supabase.from('mods').select('autor');
+    const counts = {};
+    (mods || []).forEach(m => { counts[m.autor] = (counts[m.autor] || 0) + 1; });
+
+    const rows = slice.map(u => {
+      const seg = (u.seguidores || []).length;
+      const nMods = counts[u.usuario] || 0;
+      const ban = u.banneado ? ' <span style="color:#f87171;font-size:11px;">baneado</span>' : '';
+      const modB = isMod(u.usuario) ? ' <span class="mod-badge">MOD</span>' : '';
+      const desc = escapeHtml((u.descripcion || '').slice(0, 80));
+      let fecha = '';
+      try {
+        const d = new Date(u.fecha_registro);
+        if (!isNaN(d)) fecha = d.toLocaleDateString('es-AR');
+      } catch (e) {}
+      return `<a href="/user/${escapeHtml(u.usuario)}" class="user-row">
+        <div class="user-row-main">
+          <span class="user-row-name">@${escapeHtml(u.usuario)}${modB}${ban}</span>
+          ${desc ? `<span class="user-row-desc">${desc}</span>` : ''}
+        </div>
+        <div class="user-row-meta">
+          <span>${nMods} mods</span>
+          <span>${seg} seguidores</span>
+          <span>${escapeHtml(fecha)}</span>
+        </div>
+      </a>`;
+    }).join('') || '<p style="color:#9ca3af;text-align:center;">No hay usuarios.</p>';
+
+    let pag = '';
+    if (pages > 1) {
+      pag = '<div class="pagination">';
+      for (let i = 1; i <= pages; i++) {
+        const active = i === page ? ' style="background:#e11d48;"' : '';
+        pag += `<a href="/usuarios?q=${encodeURIComponent(q)}&page=${i}" class="btn-gray" style="padding:6px 10px;font-size:13px;${i===page?'background:#e11d48;color:#fff;':''}">${i}</a> `;
+      }
+      pag += '</div>';
+    }
+
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Usuarios | Coop Free Mods</title>${estilosCSS}
+    <style>
+      .user-row {
+        display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+        background: rgba(31,35,43,0.95); border: 1px solid #2d3139; border-radius: 10px;
+        padding: 12px 14px; margin-bottom: 8px; text-decoration: none; color: inherit;
+        transition: transform 0.15s, border-color 0.15s;
+      }
+      .user-row:hover { transform: translateY(-2px); border-color: #e11d48; }
+      .user-row-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+      .user-row-name { color: #fff; font-weight: 700; font-size: 15px; }
+      .user-row-desc { color: #9ca3af; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .user-row-meta { display: flex; flex-wrap: wrap; gap: 12px; color: #6b7280; font-size: 12px; }
+      .pagination { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 16px; }
+    </style>
+    </head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <h1 style="color:white;margin:0 0 8px 0;">👥 Usuarios</h1>
+        <p style="color:#9ca3af;margin:0 0 14px 0;">${total} usuario${total===1?'':'s'}</p>
+        <form method="GET" action="/usuarios" class="filters" style="margin-bottom:16px;">
+          <input type="text" name="q" value="${escapeHtml(q)}" placeholder="Buscar usuario..." style="max-width:280px;">
+          <button type="submit" class="btn-blue">Buscar</button>
+        </form>
+        <div>${rows}</div>
+        ${pag}
+      </div>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudieron cargar los usuarios.', sesion, nNotif);
   }
 });
 
