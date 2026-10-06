@@ -1739,7 +1739,7 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
     let url, model;
     if (process.env.GROQ_API_KEY || String(apiKey).startsWith('gsk_')) {
       url = 'https://api.groq.com/openai/v1/chat/completions';
-      model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+      model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
     } else if (process.env.XAI_API_KEY) {
       url = 'https://api.x.ai/v1/chat/completions';
       model = process.env.XAI_MODEL || 'grok-2-latest';
