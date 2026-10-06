@@ -45,6 +45,7 @@ function renderPagination(baseUrl, page, totalPages, query = {}) {
 
 
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '64kb' }));
 app.use(cookieParser());
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
@@ -783,6 +784,9 @@ app.get('/publish', async (req, res) => {
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Publicar | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
     <div class="form-box"><h2>🚀 Publicar Mod</h2>
+      <p style="text-align:center;margin:0 0 16px 0;">
+        <a href="/ia-mods" class="btn-blue" style="display:inline-block;">✨ Crear mods con IA</a>
+      </p>
       <form action="/publish" method="POST" enctype="multipart/form-data">
         <label>Nombre:</label><input type="text" name="titulo" required>
         <label>Versión:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option><option value="DX + EX">DX + EX</option></select>
@@ -1523,12 +1527,20 @@ app.get('/jugar-sm64', async (req, res) => {
         if (audio) audio.pause();
       } catch(e) {}
       var wrap = document.getElementById('sm64Wrap');
+      var bar = document.querySelector('.sm64-bar');
       var btn = document.getElementById('btnFullscreen');
       function goFS() {
         var el = wrap;
         if (el.requestFullscreen) el.requestFullscreen();
         else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
       }
+      function onFsChange() {
+        var fs = document.fullscreenElement || document.webkitFullscreenElement;
+        if (bar) bar.style.display = fs ? 'none' : 'flex';
+        if (wrap) wrap.style.height = fs ? '100vh' : 'calc(100vh - 54px)';
+      }
+      document.addEventListener('fullscreenchange', onFsChange);
+      document.addEventListener('webkitfullscreenchange', onFsChange);
       btn.addEventListener('click', goFS);
     })();
     </script>
@@ -1628,6 +1640,152 @@ app.get('/config', async (req, res) => {
     })();
     </script>
   </body></html>`);
+});
+
+
+
+app.get('/ia-mods', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>IA Mods | Coop Free Mods</title>${estilosCSS}
+  <style>
+    .ia-wrap { max-width: 720px; margin: 20px auto 40px; padding: 0 14px; }
+    .ia-chat {
+      background: rgba(31,35,43,0.95); border: 1px solid #2d3139; border-radius: 12px;
+      height: min(60vh, 520px); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .ia-msg { max-width: 90%; padding: 10px 12px; border-radius: 10px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+    .ia-msg.user { align-self: flex-end; background: #2563eb; color: white; }
+    .ia-msg.bot { align-self: flex-start; background: #1f2937; color: #e5e7eb; border: 1px solid #374151; }
+    .ia-msg.sys { align-self: center; background: transparent; color: #9ca3af; font-size: 12px; }
+    .ia-form { display: flex; gap: 8px; margin-top: 12px; }
+    .ia-form textarea {
+      flex: 1; min-height: 48px; max-height: 120px; resize: vertical;
+      background: #161920; color: white; border: 1px solid #374151; border-radius: 8px; padding: 10px; font-family: inherit;
+    }
+    .ia-form button { white-space: nowrap; }
+    .ia-code { background: #0f1115; padding: 8px; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 12px; overflow-x: auto; }
+  </style>
+  </head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="ia-wrap">
+      <h1 style="color:white;margin:0 0 6px 0;">✨ Asistente de mods (Lua)</h1>
+      <p style="color:#9ca3af;font-size:14px;margin:0 0 14px 0;">Solo ayuda con <b>código Lua</b> y mods de <b>SM64 Co-op DX / EX</b>. No responde otras cosas.</p>
+      <div class="ia-chat" id="iaChat">
+        <div class="ia-msg sys">Escribí qué querés hacer (ej: “hook para cuando el jugador recoge una estrella”).</div>
+      </div>
+      <form class="ia-form" id="iaForm">
+        <textarea id="iaInput" placeholder="Pregunta sobre Lua / mods..." required maxlength="2000"></textarea>
+        <button type="submit" class="btn-red" id="iaSend">Enviar</button>
+      </form>
+      <p style="text-align:center;margin-top:14px;">
+        <a href="/publish" class="btn-blue">← Volver a publicar</a>
+      </p>
+    </div>
+    <script>
+    (function(){
+      var chat = document.getElementById('iaChat');
+      var form = document.getElementById('iaForm');
+      var input = document.getElementById('iaInput');
+      var send = document.getElementById('iaSend');
+      var history = [];
+      function add(role, text) {
+        var d = document.createElement('div');
+        d.className = 'ia-msg ' + role;
+        d.textContent = text;
+        chat.appendChild(d);
+        chat.scrollTop = chat.scrollHeight;
+      }
+      form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        var text = (input.value || '').trim();
+        if (!text) return;
+        input.value = '';
+        add('user', text);
+        history.push({ role: 'user', content: text });
+        send.disabled = true;
+        add('sys', 'Pensando…');
+        var thinking = chat.lastChild;
+        try {
+          var res = await fetch('/api/ia-mods', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: history.slice(-12) })
+          });
+          var data = await res.json();
+          if (thinking && thinking.parentNode) thinking.parentNode.removeChild(thinking);
+          if (!res.ok) {
+            add('bot', data.error || 'Error al consultar la IA.');
+          } else {
+            var reply = data.reply || '(sin respuesta)';
+            history.push({ role: 'assistant', content: reply });
+            add('bot', reply);
+          }
+        } catch (err) {
+          if (thinking && thinking.parentNode) thinking.parentNode.removeChild(thinking);
+          add('bot', 'No se pudo conectar con la IA.');
+        }
+        send.disabled = false;
+        input.focus();
+      });
+    })();
+    </script>
+  </body></html>`);
+});
+
+app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
+  try {
+    const messages = Array.isArray(req.body && req.body.messages) ? req.body.messages : [];
+    if (!messages.length) return res.status(400).json({ error: 'Mensaje vacío' });
+    const system = {
+      role: 'system',
+      content: 'Sos un asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. No inventes APIs que no existan; si no estás seguro, decilo.'
+    };
+    // Preferir Groq (console.groq.com) — keys gsk_...
+    const apiKey = process.env.GROQ_API_KEY || process.env.XAI_API_KEY || process.env.OPENAI_API_KEY || '';
+    if (!apiKey) {
+      return res.status(503).json({
+        error: 'La IA no está configurada. En Vercel agregá GROQ_API_KEY (console.groq.com → API Keys).'
+      });
+    }
+    let url, model;
+    if (process.env.GROQ_API_KEY || String(apiKey).startsWith('gsk_')) {
+      url = 'https://api.groq.com/openai/v1/chat/completions';
+      model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+    } else if (process.env.XAI_API_KEY) {
+      url = 'https://api.x.ai/v1/chat/completions';
+      model = process.env.XAI_MODEL || 'grok-2-latest';
+    } else {
+      url = 'https://api.openai.com/v1/chat/completions';
+      model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    }
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey
+      },
+      body: JSON.stringify({
+        model,
+        messages: [system, ...messages.map(m => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: String(m.content || '').slice(0, 4000)
+        }))],
+        temperature: 0.4,
+        max_tokens: 1200
+      })
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      console.error('ia error', data);
+      return res.status(502).json({ error: (data && data.error && data.error.message) || 'Error de la API de IA' });
+    }
+    const reply = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    res.json({ reply: reply || '(vacío)' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error interno de IA' });
+  }
 });
 
 
