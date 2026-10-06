@@ -152,18 +152,25 @@ function leftUserLinks(sesion, nNotif) {
 function navbar(sesion, nNotif, extra) {
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   return `<div class="navbar">
-    <div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div>
-    <div class="nav-links">
-      <a href="/">Inicio</a>
-      <a href="/mods">Mods</a>
-      <a href="/top">⭐ Top 10</a>
-      <a href="/foros">💬 Foros</a>
-      <a href="/como-instalar">📖 Cómo instalar</a>
-      <a href="/usuarios">👥 Usuarios</a>
-      <a href="/config">⚙️ Config</a>
-      ${mid}
-      ${extra || ''}
-      ${authLinks(sesion, nNotif || 0)}
+    <div class="navbar-row navbar-row-main">
+      <div class="brand"><a href="/"><img src="/public/logo.png" class="brand-logo" alt="Logo"></a></div>
+      <div class="nav-links nav-links-main">
+        <a href="/">Inicio</a>
+        <a href="/mods">Mods</a>
+        <a href="/top">⭐ Top 10</a>
+        <a href="/foros">💬 Foros</a>
+        <a href="/como-instalar">📖 Cómo instalar</a>
+        <a href="/usuarios">👥 Usuarios</a>
+        <a href="/config">⚙️ Config</a>
+        ${mid}
+        ${extra || ''}
+        ${authLinks(sesion, nNotif || 0)}
+      </div>
+    </div>
+    <div class="navbar-row navbar-row-sub">
+      <div class="nav-links nav-links-sub">
+        <!-- Futuras secciones de actualizaciones -->
+      </div>
     </div>
   </div>
   <script>
