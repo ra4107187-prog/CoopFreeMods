@@ -1647,91 +1647,52 @@ app.get('/config', async (req, res) => {
 app.get('/ia-mods', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>IA Mods | Coop Free Mods</title>${estilosCSS}
+  const page = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>ToadCode | Coop Free Mods</title>${estilosCSS}
   <style>
     .ia-wrap { max-width: 720px; margin: 20px auto 40px; padding: 0 14px; }
-    .ia-chat {
-      background: rgba(31,35,43,0.95); border: 1px solid #2d3139; border-radius: 12px;
-      height: min(60vh, 520px); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px;
-    }
-    .ia-msg { max-width: 90%; padding: 10px 12px; border-radius: 10px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
-    .ia-msg.user { align-self: flex-end; background: #2563eb; color: white; }
+    .ia-chat { background: rgba(31,35,43,0.95); border: 1px solid #2d3139; border-radius: 12px; height: min(60vh, 520px); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .ia-msg { max-width: 92%; padding: 10px 12px; border-radius: 10px; font-size: 14px; line-height: 1.5; word-break: break-word; }
+    .ia-msg.user { align-self: flex-end; background: #2563eb; color: white; white-space: pre-wrap; }
     .ia-msg.bot { align-self: flex-start; background: #1f2937; color: #e5e7eb; border: 1px solid #374151; }
     .ia-msg.sys { align-self: center; background: transparent; color: #9ca3af; font-size: 12px; }
-    .ia-form { display: flex; gap: 8px; margin-top: 12px; }
-    .ia-form textarea {
-      flex: 1; min-height: 48px; max-height: 120px; resize: vertical;
-      background: #161920; color: white; border: 1px solid #374151; border-radius: 8px; padding: 10px; font-family: inherit;
+    .ia-msg.bot .ia-name { color: #fbbf24; font-weight: 800; font-size: 12px; margin-bottom: 6px; }
+    .ia-msg.bot h3, .ia-msg.bot h4 { color: #fff; margin: 10px 0 6px 0; font-size: 14px; }
+    .ia-msg.bot ul { margin: 6px 0 8px 1.2em; padding: 0; }
+    .ia-msg.bot li { margin: 3px 0; }
+    .ia-msg.bot code { background: #0f1115; color: #93c5fd; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+    .ia-msg.bot pre { background: #0b0d10; border: 1px solid #374151; border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 8px 0; }
+    .ia-code-wrap { position: relative; margin: 8px 0; }
+    .ia-copy-btn {
+      position: absolute; top: 6px; right: 6px; z-index: 2;
+      background: #2563eb; color: #fff; border: none; border-radius: 6px;
+      font-size: 11px; font-weight: 700; padding: 4px 8px; cursor: pointer;
     }
-    .ia-form button { white-space: nowrap; }
-    .ia-code { background: #0f1115; padding: 8px; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 12px; overflow-x: auto; }
-  </style>
-  </head><body>
+    .ia-copy-btn:hover { background: #1d4ed8; }
+    .ia-copy-btn.copied { background: #16a34a; }
+    .ia-msg.bot pre { margin-top: 0; padding-top: 28px; }
+
+    .ia-msg.bot pre code { background: none; padding: 0; color: #e5e7eb; display: block; white-space: pre; }
+    .ia-msg.bot strong { color: #fff; }
+    .ia-form { display: flex; gap: 8px; margin-top: 12px; }
+    .ia-form textarea { flex: 1; min-height: 48px; max-height: 120px; resize: vertical; background: #161920; color: white; border: 1px solid #374151; border-radius: 8px; padding: 10px; font-family: inherit; }
+  </style></head><body>
     ${navbar(sesion, nNotif)}
     <div class="ia-wrap">
-      <h1 style="color:white;margin:0 0 6px 0;">✨ ToadCode: Asistente de mods (Lua)</h1>
-      <p style="color:#9ca3af;font-size:14px;margin:0 0 14px 0;">Solo ayuda con <b>código Lua</b> y mods de <b>SM64 Co-op DX / EX</b>. No responde otras cosas.</p>
-      <div class="ia-chat" id="iaChat">
-        <div class="ia-msg sys">Escribí qué querés hacer (ej: “hook para cuando el jugador recoge una estrella”).</div>
-      </div>
+      <h1 style="color:white;margin:0 0 6px 0;">🍄 ToadCode</h1>
+      <p style="color:#9ca3af;font-size:14px;margin:0 0 14px 0;">Asistente de <b>código Lua</b> y mods para <b>SM64 Co-op DX / EX</b>.</p>
+      <div class="ia-chat" id="iaChat"><div class="ia-msg sys">¡Hola! Soy <b style="color:#fbbf24;">ToadCode</b>. Preguntame por hooks, personajes, dynos, gamemodes…</div></div>
       <form class="ia-form" id="iaForm">
         <textarea id="iaInput" placeholder="Pregunta sobre Lua / mods..." required maxlength="2000"></textarea>
         <button type="submit" class="btn-red" id="iaSend">Enviar</button>
       </form>
-      <p style="text-align:center;margin-top:14px;">
-        <a href="/publish" class="btn-blue">← Volver a publicar</a>
-      </p>
+      <p style="text-align:center;margin-top:14px;"><a href="/publish" class="btn-blue">← Volver a publicar</a></p>
     </div>
-    <script>
-    (function(){
-      var chat = document.getElementById('iaChat');
-      var form = document.getElementById('iaForm');
-      var input = document.getElementById('iaInput');
-      var send = document.getElementById('iaSend');
-      var history = [];
-      function add(role, text) {
-        var d = document.createElement('div');
-        d.className = 'ia-msg ' + role;
-        d.textContent = text;
-        chat.appendChild(d);
-        chat.scrollTop = chat.scrollHeight;
-      }
-      form.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        var text = (input.value || '').trim();
-        if (!text) return;
-        input.value = '';
-        add('user', text);
-        history.push({ role: 'user', content: text });
-        send.disabled = true;
-        add('sys', 'Pensando…');
-        var thinking = chat.lastChild;
-        try {
-          var res = await fetch('/api/ia-mods', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: history.slice(-12) })
-          });
-          var data = await res.json();
-          if (thinking && thinking.parentNode) thinking.parentNode.removeChild(thinking);
-          if (!res.ok) {
-            add('bot', data.error || 'Error al consultar la IA.');
-          } else {
-            var reply = data.reply || '(sin respuesta)';
-            history.push({ role: 'assistant', content: reply });
-            add('bot', reply);
-          }
-        } catch (err) {
-          if (thinking && thinking.parentNode) thinking.parentNode.removeChild(thinking);
-          add('bot', 'No se pudo conectar con la IA.');
-        }
-        send.disabled = false;
-        input.focus();
-      });
-    })();
-    </script>
-  </body></html>`);
+    <script src="/public/toadcode-chat.js"></script>
+  </body></html>`;
+  res.send(page);
 });
+
+
 
 app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
   try {
@@ -1739,7 +1700,7 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
     if (!messages.length) return res.status(400).json({ error: 'Mensaje vacío' });
     const system = {
       role: 'system',
-      content: 'Eres ToadCode, un asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. No inventes APIs que no existan; si no estás seguro, decilo. Y no pongas emojis'
+      content: 'Tu nombre es ToadCode, asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. No inventes APIs que no existan; si no estás seguro, decilo.'
     };
     // Preferir Groq (console.groq.com) — keys gsk_...
     const apiKey = process.env.GROQ_API_KEY || process.env.XAI_API_KEY || process.env.OPENAI_API_KEY || '';
