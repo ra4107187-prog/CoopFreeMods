@@ -360,7 +360,6 @@ app.get('/', async (req, res) => {
           <a href="/como-instalar" class="btn-gray" style="padding:10px 16px;font-size:14px;">Cómo instalar</a>
           <a href="/discord" class="discord-float" style="margin:0;">Discord</a>
           <button type="button" id="cfm-egg-zone" aria-label="egg" style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;margin-left:6px;padding:0;border:1px solid #374151;border-radius:8px;background:#1f2937;color:#4b5563;font-size:16px;line-height:1;cursor:pointer;vertical-align:middle;">·</button>
-          <a href="/jugar-sm64" id="cfm-egg-sm64" style="display:none;margin:0;background:#e11d48;color:#fff !important;font-weight:800;padding:12px 16px;border-radius:999px;text-decoration:none;box-shadow:0 6px 20px rgba(225,29,72,0.45);">🍄 Jugar SM64</a>
         </div>
         <script>
         (function(){
