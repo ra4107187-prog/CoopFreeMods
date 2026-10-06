@@ -1512,7 +1512,7 @@ app.get('/jugar-sm64', async (req, res) => {
       <span class="sm64-controls-mini">WASD · A:X · B:C · Z:Espacio · Start:Enter · Cámara:flechas</span>
     </div>
     <div class="sm64-frame-wrap" id="sm64Wrap">
-      <iframe class="sm64-frame" id="sm64Frame" src="/public/sm64/SM64.html" title="SM64" allow="fullscreen; gamepad *; autoplay" allowfullscreen></iframe>
+      <iframe class="sm64-frame" id="sm64Frame" src="/public/sm64/index.html" title="SM64" allow="fullscreen; gamepad *; autoplay" allowfullscreen></iframe>
     </div>
     <script>
     (function(){
