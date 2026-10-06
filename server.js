@@ -1669,7 +1669,7 @@ app.get('/ia-mods', async (req, res) => {
   </head><body>
     ${navbar(sesion, nNotif)}
     <div class="ia-wrap">
-      <h1 style="color:white;margin:0 0 6px 0;">✨ Asistente de mods (Lua)</h1>
+      <h1 style="color:white;margin:0 0 6px 0;">✨ ToadCode: Asistente de mods (Lua)</h1>
       <p style="color:#9ca3af;font-size:14px;margin:0 0 14px 0;">Solo ayuda con <b>código Lua</b> y mods de <b>SM64 Co-op DX / EX</b>. No responde otras cosas.</p>
       <div class="ia-chat" id="iaChat">
         <div class="ia-msg sys">Escribí qué querés hacer (ej: “hook para cuando el jugador recoge una estrella”).</div>
@@ -1739,7 +1739,7 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
     if (!messages.length) return res.status(400).json({ error: 'Mensaje vacío' });
     const system = {
       role: 'system',
-      content: 'Sos un asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. No inventes APIs que no existan; si no estás seguro, decilo.'
+      content: 'Eres ToadCode, un asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. No inventes APIs que no existan; si no estás seguro, decilo. Y no pongas emojis'
     };
     // Preferir Groq (console.groq.com) — keys gsk_...
     const apiKey = process.env.GROQ_API_KEY || process.env.XAI_API_KEY || process.env.OPENAI_API_KEY || '';
