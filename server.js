@@ -169,6 +169,7 @@ function navbar(sesion, nNotif, extra) {
     <div class="navbar-row navbar-row-sub">
       <div class="nav-links nav-links-sub">
         <a href="/usuarios">👥 Usuarios</a>
+        <a href="/ia-mods">🍄 ToadCode</a>
       </div>
     </div>
   </div>
@@ -1488,40 +1489,44 @@ app.get('/jugar-sm64', async (req, res) => {
   const nNotif = await countNotif(sesion.name);
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Jugar SM64 | Coop Free Mods</title>${estilosCSS}
   <style>
-    body.sm64-page { margin: 0; }
+    body.sm64-page { margin: 0; background: #000; }
+    #sm64App {
+      display: flex; flex-direction: column; width: 100%; height: 100vh;
+      background: #000;
+    }
+    #sm64App:fullscreen, #sm64App:-webkit-full-screen {
+      width: 100vw; height: 100vh;
+    }
     .sm64-bar {
       display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-      padding: 10px 14px; background: rgba(15,17,21,0.95);
-      border-bottom: 2px solid #ff3333; position: relative; z-index: 5;
+      padding: 10px 14px; background: rgba(15,17,21,0.96);
+      border-bottom: 2px solid #ff3333; position: relative; z-index: 20;
+      flex-shrink: 0;
     }
     .sm64-bar a, .sm64-bar button {
       font-weight: 700; font-size: 13px; border-radius: 8px; border: none; cursor: pointer;
-      padding: 8px 12px; text-decoration: none;
+      padding: 8px 12px; text-decoration: none; pointer-events: auto;
     }
     .sm64-bar .btn-fs { background: #2563eb; color: white; }
     .sm64-bar .btn-back { background: #374151; color: #e5e7eb; }
-    .sm64-controls-mini {
-      color: #9ca3af; font-size: 12px; margin-left: auto;
-    }
+    .sm64-controls-mini { color: #9ca3af; font-size: 12px; margin-left: auto; }
     .sm64-frame-wrap {
-      position: relative; width: 100%; height: calc(100vh - 54px);
-      background: #000;
+      position: relative; flex: 1; min-height: 0; width: 100%; background: #000;
     }
     .sm64-frame {
       width: 100%; height: 100%; border: 0; display: block; background: #000;
     }
-    .sm64-frame-wrap:fullscreen, .sm64-frame-wrap:-webkit-full-screen {
-      width: 100vw; height: 100vh;
-    }
   </style>
   </head><body class="sm64-page">
-    <div class="sm64-bar">
-      <a href="/" class="btn-back">← Inicio</a>
-      <button type="button" class="btn-fs" id="btnFullscreen">⛶ Pantalla completa</button>
-      <span class="sm64-controls-mini">WASD · A:X · B:C · Z:Espacio · Start:Enter · Cámara:flechas</span>
-    </div>
-    <div class="sm64-frame-wrap" id="sm64Wrap">
-      <iframe class="sm64-frame" id="sm64Frame" src="/public/sm64/index.html" title="SM64" allow="fullscreen; gamepad *; autoplay" allowfullscreen></iframe>
+    <div id="sm64App">
+      <div class="sm64-bar">
+        <a href="/" class="btn-back">← Inicio</a>
+        <button type="button" class="btn-fs" id="btnFullscreen">⛶ Pantalla completa</button>
+        <span class="sm64-controls-mini">WASD · A:X · B:C · Z:Espacio · Start:Enter · Cámara:flechas</span>
+      </div>
+      <div class="sm64-frame-wrap" id="sm64Wrap">
+        <iframe class="sm64-frame" id="sm64Frame" src="/public/sm64/index.html" title="SM64" allow="fullscreen; gamepad *; autoplay" allowfullscreen></iframe>
+      </div>
     </div>
     <script>
     (function(){
@@ -1531,22 +1536,30 @@ app.get('/jugar-sm64', async (req, res) => {
         var audio = document.getElementById('cfm-bg-music');
         if (audio) audio.pause();
       } catch(e) {}
-      var wrap = document.getElementById('sm64Wrap');
-      var bar = document.querySelector('.sm64-bar');
+      var app = document.getElementById('sm64App');
       var btn = document.getElementById('btnFullscreen');
+      function isFs() {
+        return document.fullscreenElement || document.webkitFullscreenElement;
+      }
       function goFS() {
-        var el = wrap;
-        if (el.requestFullscreen) el.requestFullscreen();
-        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        if (isFs()) {
+          if (document.exitFullscreen) document.exitFullscreen();
+          else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+          return;
+        }
+        if (app.requestFullscreen) app.requestFullscreen();
+        else if (app.webkitRequestFullscreen) app.webkitRequestFullscreen();
       }
       function onFsChange() {
-        var fs = document.fullscreenElement || document.webkitFullscreenElement;
-        if (bar) bar.style.display = fs ? 'none' : 'flex';
-        if (wrap) wrap.style.height = fs ? '100vh' : 'calc(100vh - 54px)';
+        btn.textContent = isFs() ? '✕ Salir pantalla completa' : '⛶ Pantalla completa';
       }
       document.addEventListener('fullscreenchange', onFsChange);
       document.addEventListener('webkitfullscreenchange', onFsChange);
-      btn.addEventListener('click', goFS);
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        goFS();
+      });
     })();
     </script>
   </body></html>`);
