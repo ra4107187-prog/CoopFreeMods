@@ -1728,14 +1728,19 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
       content: 'Tu nombre es ToadCode, asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. Usá markdown: bloques de código con triple backtick y lenguaje lua, tablas markdown simples, negritas con **. No uses etiquetas HTML como <br>. PRIORIDAD: cuando des código Lua, el bloque debe estar COMPLETO (todas las funciones cerradas con end, sin cortar a mitad). Si el script es largo, priorizá el código completo y acortá la explicación. No inventes APIs; si no estás seguro, decilo.'
     };
     // Preferir Groq (console.groq.com) — keys gsk_...
-    const apiKey = process.env.GROQ_API_KEY || process.env.XAI_API_KEY || process.env.OPENAI_API_KEY || '';
+        // Preferir Gemini Flash; luego Groq / otros
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GROQ_API_KEY || process.env.XAI_API_KEY || process.env.OPENAI_API_KEY || '';
     if (!apiKey) {
       return res.status(503).json({
-        error: 'La IA no está configurada. En Vercel agregá GROQ_API_KEY (console.groq.com → API Keys).'
+        error: 'La IA no está configurada. En Vercel agregá GEMINI_API_KEY (Google AI Studio).'
       });
     }
     let url, model;
-    if (process.env.GROQ_API_KEY || String(apiKey).startsWith('gsk_')) {
+    if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
+      // API compatible con OpenAI de Google
+      url = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+      model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    } else if (process.env.GROQ_API_KEY || String(apiKey).startsWith('gsk_')) {
       url = 'https://api.groq.com/openai/v1/chat/completions';
       model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
     } else if (process.env.XAI_API_KEY) {
