@@ -1774,8 +1774,7 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
         siteCtx
       ].join('\n')
     };
-    // Preferir Groq (console.groq.com) — keys gsk_...
-        // Preferir Gemini Flash; luego Groq / otros
+    // Preferir Gemini Flash; luego Groq / xAI
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GROQ_API_KEY || process.env.XAI_API_KEY || process.env.OPENAI_API_KEY || '';
     if (!apiKey) {
       return res.status(503).json({
@@ -1786,13 +1785,13 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
     if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
       // API compatible con OpenAI de Google
       url = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-      model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+      model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
     } else if (process.env.GROQ_API_KEY || String(apiKey).startsWith('gsk_')) {
       url = 'https://api.groq.com/openai/v1/chat/completions';
       model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
     } else if (process.env.XAI_API_KEY) {
       url = 'https://api.x.ai/v1/chat/completions';
-      model = process.env.XAI_MODEL || 'grok-2-latest';
+      model = process.env.XAI_MODEL || 'grok-3-latest';
     } else {
       url = 'https://api.openai.com/v1/chat/completions';
       model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -1813,10 +1812,19 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
         max_tokens: 4096
       })
     });
-    const data = await r.json();
+    const data = await r.json().catch(() => ({}));
     if (!r.ok) {
-      console.error('ia error', data);
-      return res.status(502).json({ error: (data && data.error && data.error.message) || 'Error de la API de IA' });
+      console.error('ia error', model, r.status, data);
+      let msg = 'Error de la API de IA';
+      if (data && data.error) {
+        if (typeof data.error === 'string') msg = data.error;
+        else if (data.error.message) msg = data.error.message;
+        else if (data.error.status) msg = String(data.error.status);
+      } else if (data && data.message) msg = data.message;
+      msg = String(msg).slice(0, 300);
+      return res.status(502).json({
+        error: msg + ' (modelo: ' + model + ', status: ' + r.status + ')'
+      });
     }
     const reply = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     res.json({ reply: reply || '(vacío)' });
