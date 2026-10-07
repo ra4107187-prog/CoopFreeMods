@@ -790,9 +790,6 @@ app.get('/publish', async (req, res) => {
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Publicar | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
     <div class="form-box"><h2>🚀 Publicar Mod</h2>
-      <p style="text-align:center;margin:0 0 16px 0;">
-        <a href="/ia-mods" class="btn-blue" style="display:inline-block;">✨ Crear mods con IA</a>
-      </p>
       <form action="/publish" method="POST" enctype="multipart/form-data">
         <label>Nombre:</label><input type="text" name="titulo" required>
         <label>Versión:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option><option value="DX + EX">DX + EX</option></select>
@@ -1712,7 +1709,7 @@ app.get('/ia-mods', async (req, res) => {
         <textarea id="iaInput" placeholder="Pregunta sobre Lua / mods..." required maxlength="2000"></textarea>
         <button type="submit" class="btn-red" id="iaSend">Enviar</button>
       </form>
-      <p style="text-align:center;margin-top:14px;"><a href="/publish" class="btn-blue">← Volver a publicar</a></p>
+      <p style="text-align:center;margin-top:14px;"><a href="/" class="btn-blue">← Volver al inicio</a></p>
     </div>
     <script src="/public/toadcode-chat.js"></script>
   </body></html>`;
