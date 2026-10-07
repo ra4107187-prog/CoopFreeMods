@@ -1704,8 +1704,8 @@ app.get('/ia-mods', async (req, res) => {
     ${navbar(sesion, nNotif)}
     <div class="ia-wrap">
       <h1 style="color:white;margin:0 0 6px 0;">🍄 ToadCode</h1>
-      <p style="color:#9ca3af;font-size:14px;margin:0 0 14px 0;">Asistente de <b>código Lua</b> y mods para <b>SM64 Co-op DX / EX</b>.</p>
-      <div class="ia-chat" id="iaChat"><div class="ia-msg sys">¡Hola! Soy <b style="color:#fbbf24;">ToadCode</b>. Preguntame por hooks, personajes, dynos, gamemodes…</div></div>
+      <p style="color:#9ca3af;font-size:14px;margin:0 0 14px 0;">Ayuda con <b>Lua / mods</b> de SM64 Co-op y con <b>dudas de esta web</b> (top mods, categorías, etc.).</p>
+      <div class="ia-chat" id="iaChat"><div class="ia-msg sys">¡Hola! Soy <b style="color:#fbbf24;">ToadCode</b>. Preguntame por Lua, mods, o por la web (ej: ¿cuál es el mod más descargado?).</div></div>
       <form class="ia-form" id="iaForm">
         <textarea id="iaInput" placeholder="Pregunta sobre Lua / mods..." required maxlength="2000"></textarea>
         <button type="submit" class="btn-red" id="iaSend">Enviar</button>
@@ -1723,9 +1723,56 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
   try {
     const messages = Array.isArray(req.body && req.body.messages) ? req.body.messages : [];
     if (!messages.length) return res.status(400).json({ error: 'Mensaje vacío' });
+
+    // Datos en vivo de la web para responder dudas del sitio
+    let siteCtx = '';
+    try {
+      const { data: mods } = await supabase.from('mods').select('id,titulo,autor,categoria,version,descargas,likes').order('descargas', { ascending: false }).limit(200);
+      const { count: nUsers } = await supabase.from('usuarios').select('*', { count: 'exact', head: true });
+      const { count: nForos } = await supabase.from('foro_temas').select('*', { count: 'exact', head: true });
+      const lista = mods || [];
+      const totalMods = lista.length;
+      const totalDesc = lista.reduce((s, m) => s + (m.descargas || 0), 0);
+      const top = lista.slice(0, 5).map((m, i) => (i + 1) + '. "' + (m.titulo || '') + '" por @' + (m.autor || '') + ' — ' + (m.descargas || 0) + ' descargas').join('\n');
+      const cats = {};
+      lista.forEach(m => { const c = m.categoria || 'Otros'; cats[c] = (cats[c] || 0) + 1; });
+      const catList = Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([c, n]) => c + ' (' + n + ')').join(', ');
+      const vers = {};
+      lista.forEach(m => { const v = m.version || '?'; vers[v] = (vers[v] || 0) + 1; });
+      const verList = Object.entries(vers).map(([v, n]) => v + ' (' + n + ')').join(', ');
+      siteCtx = [
+        'DATOS ACTUALES DE LA WEB (usá estos números si preguntan por la web):',
+        '- Nombre del sitio: Coop Free Mods',
+        '- Qué es: repositorio / comunidad gratuita de mods para Super Mario 64 Co-op (DX, EX, DX+EX). Se pueden publicar, descargar, comentar, foros, favoritos, likes.',
+        '- URL aproximada: coop-free-mods.vercel.app',
+        '- Mods listados (muestra): ' + totalMods,
+        '- Usuarios registrados (aprox): ' + (nUsers || 0),
+        '- Temas de foro (aprox): ' + (nForos || 0),
+        '- Descargas sumadas (muestra top): ' + totalDesc,
+        '- Top mods más descargados:\n' + (top || 'sin datos'),
+        '- Categorías y cantidad: ' + (catList || 'sin datos'),
+        '- Versiones: ' + (verList || 'sin datos'),
+        '- Secciones de la web: Inicio, Mods, Top 10, Foros, Cómo instalar, Config, Usuarios, Novedades, ToadCode (este chat), Discord, Mis mods, Favoritos, Notificaciones.',
+        '- ToadCode: asistente de la web (Lua/mods + dudas del sitio).',
+        '- Moderador principal: SuperAaron64.'
+      ].join('\n');
+    } catch (e) {
+      siteCtx = 'No se pudieron cargar stats en vivo. Coop Free Mods es un sitio de mods gratis para SM64 Co-op DX/EX.';
+    }
+
     const system = {
       role: 'system',
-      content: 'Tu nombre es ToadCode, asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. Usá markdown: bloques de código con triple backtick y lenguaje lua, tablas markdown simples, negritas con **. No uses etiquetas HTML como <br>. PRIORIDAD: cuando des código Lua, el bloque debe estar COMPLETO (todas las funciones cerradas con end, sin cortar a mitad). Si el script es largo, priorizá el código completo y acortá la explicación. No inventes APIs; si no estás seguro, decilo.'
+      content: [
+        'Tu nombre es ToadCode, asistente oficial de Coop Free Mods.',
+        'Podés ayudar con DOS cosas:',
+        '1) Código Lua y mods de SM64 Co-op (DX, EX, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc.',
+        '2) Dudas sobre ESTA web: qué es Coop Free Mods, categorías, top descargas, secciones, cómo publicar, cómo instalar, Discord, etc. Usá los DATOS ACTUALES de abajo; no inventes cifras.',
+        'Si preguntan algo que no sea Lua/mods de Co-op NI la web Coop Free Mods, respondé breve que solo cubrís eso.',
+        'Respondé en español, claro. En código Lua: bloques ```lua COMPLETOS (con end), sin cortar. Priorizá código completo si el script es largo.',
+        'Markdown simple. Sin HTML.',
+        '',
+        siteCtx
+      ].join('\n')
     };
     // Preferir Groq (console.groq.com) — keys gsk_...
         // Preferir Gemini Flash; luego Groq / otros
