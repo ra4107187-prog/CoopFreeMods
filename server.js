@@ -169,6 +169,7 @@ function navbar(sesion, nNotif, extra) {
     <div class="navbar-row navbar-row-sub">
       <div class="nav-links nav-links-sub">
         <a href="/usuarios">👥 Usuarios</a>
+        <a href="/novedades">📰 Novedades</a>
         <a href="/ia-mods">🍄 ToadCode</a>
       </div>
     </div>
@@ -1868,6 +1869,148 @@ app.get('/usuarios', async (req, res) => {
     console.error(e);
     pageError(res, 500, 'Error', 'No se pudieron cargar los usuarios.', sesion, nNotif);
   }
+});
+
+
+// ---------- NOVEDADES ----------
+app.get('/novedades', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  try {
+    const { data: rows, error } = await supabase
+      .from('novedades')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    const list = rows || [];
+    const items = list.map((n) => {
+      let fecha = '';
+      try {
+        const d = new Date(n.created_at);
+        if (!isNaN(d)) fecha = d.toLocaleDateString('es-AR') + ' ' + d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      } catch (e) {}
+      const del = sesion.esMod
+        ? `<a href="/novedades/borrar/${n.id}" class="btn-delete" onclick="return confirm('¿Borrar esta novedad?');">Borrar</a>`
+        : '';
+      return `<article class="nov-card">
+        <div class="nov-head">
+          <h2>${escapeHtml(n.titulo)}</h2>
+          <span class="nov-meta">por @${escapeHtml(n.autor || 'mod')} · ${escapeHtml(fecha)}</span>
+        </div>
+        <div class="nov-body">${escapeHtml(n.contenido).replace(/\n/g, '<br>')}</div>
+        ${del ? `<div style="margin-top:10px;">${del}</div>` : ''}
+      </article>`;
+    }).join('') || `<p style="color:#9ca3af;text-align:center;">Todavía no hay novedades.</p>`;
+
+    const newBtn = sesion.esMod
+      ? `<a href="/novedades/nueva" class="btn-red">+ Nueva novedad</a>`
+      : '';
+
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Novedades | Coop Free Mods</title>${estilosCSS}
+    <style>
+      .nov-card {
+        background: rgba(31,35,43,0.95); border: 1px solid #2d3139; border-radius: 12px;
+        padding: 18px 20px; margin-bottom: 14px;
+      }
+      .nov-head h2 { color: #fff; margin: 0 0 6px 0; font-size: 1.15rem; }
+      .nov-meta { color: #9ca3af; font-size: 12px; }
+      .nov-body { color: #e5e7eb; margin-top: 12px; line-height: 1.55; font-size: 14px; }
+    </style>
+    </head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container" style="max-width:720px;">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;">
+          <h1 style="color:white;margin:0;">📰 Novedades</h1>
+          ${newBtn}
+        </div>
+        <p style="color:#9ca3af;margin:0 0 18px 0;font-size:14px;">Cambios y anuncios de Coop Free Mods. Solo los moderadores pueden publicar.</p>
+        ${items}
+      </div>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudieron cargar las novedades. ¿Creaste la tabla en Supabase?', sesion, nNotif);
+  }
+});
+
+app.get('/novedades/nueva', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  if (!sesion.name) return res.redirect('/login');
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Solo los moderadores pueden crear novedades.', sesion, nNotif);
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Nueva novedad | Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="form-box">
+      <h2>📰 Nueva novedad</h2>
+      <p style="color:#9ca3af;font-size:13px;">Se notificará a <b>todos</b> los usuarios registrados.</p>
+      <form action="/novedades/nueva" method="POST">
+        <label>Título</label>
+        <input type="text" name="titulo" required maxlength="120" placeholder="Ej: Nueva sección ToadCode">
+        <label>Contenido</label>
+        <textarea name="contenido" required maxlength="4000" rows="8" placeholder="Contá qué cambió..."></textarea>
+        <button type="submit" class="btn-red" style="width:100%;">Publicar y notificar a todos</button>
+      </form>
+      <p style="text-align:center;margin-top:14px;"><a href="/novedades" class="btn-blue">Cancelar</a></p>
+    </div>
+  </body></html>`);
+});
+
+app.post('/novedades/nueva', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Solo los moderadores pueden crear novedades.', sesion, 0);
+  if (!rateLimit('novedad:' + sesion.name, 5000)) {
+    return pageError(res, 429, 'Demasiado rápido', 'Esperá un momento.', sesion, 0);
+  }
+  const titulo = cleanText(req.body.titulo || '').slice(0, 120);
+  const contenido = String(req.body.contenido || '').trim().slice(0, 4000);
+  if (titulo.length < 3 || contenido.length < 3) {
+    return pageError(res, 400, 'Datos incompletos', 'Título y contenido muy cortos.', sesion, 0);
+  }
+  try {
+    const { data: nov, error } = await supabase.from('novedades').insert({
+      titulo,
+      contenido,
+      autor: sesion.name
+    }).select('id').single();
+    if (error) throw error;
+
+    const { data: users } = await supabase.from('usuarios').select('usuario');
+    const link = '/novedades';
+    const mensaje = 'Nueva novedad: ' + titulo;
+    if (users && users.length) {
+      const batch = users
+        .filter((u) => u.usuario && u.usuario !== sesion.name)
+        .map((u) => ({
+          usuario: u.usuario,
+          tipo: 'novedad',
+          mensaje,
+          link,
+          leido: false
+        }));
+      for (let i = 0; i < batch.length; i += 100) {
+        const chunk = batch.slice(i, i + 100);
+        if (chunk.length) {
+          const { error: nErr } = await supabase.from('notificaciones').insert(chunk);
+          if (nErr) console.error('notif batch', nErr);
+        }
+      }
+    }
+    res.redirect('/novedades');
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo publicar. ¿Existe la tabla novedades en Supabase?', sesion, 0);
+  }
+});
+
+app.get('/novedades/borrar/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'No tenés permiso.', sesion, 0);
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.redirect('/novedades');
+  await supabase.from('novedades').delete().eq('id', id);
+  res.redirect('/novedades');
 });
 
 
