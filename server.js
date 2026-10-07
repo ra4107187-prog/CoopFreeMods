@@ -1813,7 +1813,7 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
     if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
       // API compatible con OpenAI de Google
       url = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-      model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+      model = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
     } else if (process.env.GROQ_API_KEY || String(apiKey).startsWith('gsk_')) {
       url = 'https://api.groq.com/openai/v1/chat/completions';
       model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
