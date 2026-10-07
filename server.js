@@ -1666,7 +1666,7 @@ app.get('/ia-mods', async (req, res) => {
   const page = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>ToadCode | Coop Free Mods</title>${estilosCSS}
   <style>
     .ia-wrap { max-width: 720px; margin: 20px auto 40px; padding: 0 14px; }
-    .ia-chat { background: rgba(31,35,43,0.95); border: 1px solid #2d3139; border-radius: 12px; height: min(60vh, 520px); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .ia-chat { background: rgba(31,35,43,0.95); border: 1px solid #2d3139; border-radius: 12px; height: min(70vh, 640px); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
     .ia-msg { max-width: 92%; padding: 10px 12px; border-radius: 10px; font-size: 14px; line-height: 1.5; word-break: break-word; }
     .ia-msg.user { align-self: flex-end; background: #2563eb; color: white; white-space: pre-wrap; }
     .ia-msg.bot { align-self: flex-start; background: #1f2937; color: #e5e7eb; border: 1px solid #374151; }
@@ -1725,7 +1725,7 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
     if (!messages.length) return res.status(400).json({ error: 'Mensaje vacío' });
     const system = {
       role: 'system',
-      content: 'Tu nombre es ToadCode, asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. Usá markdown: bloques de código con triple backtick y lenguaje lua, tablas markdown simples, negritas con **. No uses etiquetas HTML como <br>. No inventes APIs que no existan; si no estás seguro, decilo.'
+      content: 'Tu nombre es ToadCode, asistente de Coop Free Mods. SOLO ayudás con código Lua y mods para Super Mario 64 Co-op (SM64 Co-op DX, SM64 EX Co-op, DX+EX): hooks, personajes, dynos, gamemodes, movesets, UI, etc. Si el usuario pregunta algo que no sea Lua/mods de ese juego, respondé brevemente que solo podés ayudar con mods y Lua de SM64 Co-op. Respondé en español, claro y con ejemplos de código cuando sirva. Usá markdown: bloques de código con triple backtick y lenguaje lua, tablas markdown simples, negritas con **. No uses etiquetas HTML como <br>. PRIORIDAD: cuando des código Lua, el bloque debe estar COMPLETO (todas las funciones cerradas con end, sin cortar a mitad). Si el script es largo, priorizá el código completo y acortá la explicación. No inventes APIs; si no estás seguro, decilo.'
     };
     // Preferir Groq (console.groq.com) — keys gsk_...
     const apiKey = process.env.GROQ_API_KEY || process.env.XAI_API_KEY || process.env.OPENAI_API_KEY || '';
@@ -1755,10 +1755,10 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
         model,
         messages: [system, ...messages.map(m => ({
           role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: String(m.content || '').slice(0, 4000)
+          content: String(m.content || '').slice(0, 8000)
         }))],
         temperature: 0.4,
-        max_tokens: 1200
+        max_tokens: 4096
       })
     });
     const data = await r.json();
@@ -1964,7 +1964,7 @@ app.post('/novedades/nueva', async (req, res) => {
     return pageError(res, 429, 'Demasiado rápido', 'Esperá un momento.', sesion, 0);
   }
   const titulo = cleanText(req.body.titulo || '').slice(0, 120);
-  const contenido = String(req.body.contenido || '').trim().slice(0, 4000);
+  const contenido = String(req.body.contenido || '').trim().slice(0, 8000);
   if (titulo.length < 3 || contenido.length < 3) {
     return pageError(res, 400, 'Datos incompletos', 'Título y contenido muy cortos.', sesion, 0);
   }
