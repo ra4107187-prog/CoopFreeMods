@@ -256,7 +256,7 @@ function renderModCards(mods, sesion) {
       <a href="/mod/${mod.id}" style="text-decoration:none;color:inherit;display:block;flex:1;">
         <div class="card-img-box">${img}</div>
         <div class="card-content" style="padding-bottom:8px;">
-          <div class="tags"><span class="tag-version">${escapeHtml(mod.version)}</span><span class="tag-category">${escapeHtml(mod.categoria)}</span></div>
+          <div class="tags"><span class="tag-version">${escapeHtml(mod.version)}</span><span class="tag-category">${escapeHtml(mod.categoria)}</span><span class="tag-id" style="background:#374151;color:#9ca3af;">#${mod.id}</span></div>
           <h3 style="color:white;margin:0 0 10px 0;">${escapeHtml(mod.titulo)}</h3>
           <p>${escapeHtml(mod.descripcion)}</p>
         </div>
@@ -420,17 +420,23 @@ app.get('/mods', async (req, res) => {
     const { data, error } = await supabase.from('mods').select('*').order('id', { ascending: false });
     if (error) throw error;
     let mods = (data || []).map(mapMod).filter(mod => {
-      const t = !buscarTexto || mod.titulo.toLowerCase().includes(buscarTexto) || mod.descripcion.toLowerCase().includes(buscarTexto);
+      const q = buscarTexto;
+      const byId = q && /^\d+$/.test(q) && String(mod.id) === q;
+      const byText = !q || byId || (mod.titulo || '').toLowerCase().includes(q) || (mod.descripcion || '').toLowerCase().includes(q) || (mod.autor || '').toLowerCase().includes(q);
       const c = buscarCategoria === 'Todas' || mod.categoria === buscarCategoria;
       const v = buscarVersion === 'Todas' || mod.version === buscarVersion;
-      return t && c && v;
+      return byText && c && v;
     });
+    // Si buscan un ID exacto y hay 1 resultado, ir directo al mod (el link sigue siendo /mod/id)
+    if (/^\d+$/.test(buscarTexto) && mods.length === 1) {
+      return res.redirect('/mod/' + mods[0].id);
+    }
     const pg = paginateList(mods, req.query.page, 30);
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mods | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <form action="/mods" method="GET" class="filter-bar">
-          <input type="text" name="buscar" placeholder="Buscar mods..." value="${escapeHtml(req.query.buscar || '')}">
+          <input type="text" name="buscar" placeholder="Buscar mods o ID..." value="${escapeHtml(req.query.buscar || '')}">
           <select name="version">
             <option value="Todas">Todas las versiones</option>
             <option value="SM64 Co-op DX" ${buscarVersion==='SM64 Co-op DX'?'selected':''}>SM64 Co-op DX</option>
@@ -618,7 +624,7 @@ app.get('/mod/:id', async (req, res) => {
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
-          <div><h1 style="color:white;">${escapeHtml(mod.titulo)}</h1>
+          <div><h1 style="color:white;">${escapeHtml(mod.titulo)} <span style="color:#6b7280;font-size:0.55em;font-weight:600;">#${mod.id}</span></h1>
             <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></p></div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
@@ -1218,11 +1224,21 @@ app.get('/foros', async (req, res) => {
     const sesion = await getSesion(req);
     const nNotif = await countNotif(sesion.name);
     const cat = req.query.categoria || 'Todas';
-    let q = supabase.from('foro_temas').select('*').order('fijado', { ascending: false }).order('updated_at', { ascending: false }).limit(100);
+    const buscarForo = String(req.query.buscar || '').trim().toLowerCase();
+    let q = supabase.from('foro_temas').select('*').order('fijado', { ascending: false }).order('updated_at', { ascending: false }).limit(200);
     if (cat !== 'Todas') q = q.eq('categoria', cat);
     const { data, error } = await q;
     if (error) throw error;
-    const temas = data || [];
+    let temas = data || [];
+    if (buscarForo) {
+      temas = temas.filter(tm => {
+        if (/^\d+$/.test(buscarForo) && String(tm.id) === buscarForo) return true;
+        return (tm.titulo || '').toLowerCase().includes(buscarForo) || (tm.autor || '').toLowerCase().includes(buscarForo);
+      });
+      if (/^\d+$/.test(buscarForo) && temas.length === 1) {
+        return res.redirect('/foros/tema/' + temas[0].id);
+      }
+    }
     // count replies
     const ids = temas.map(x => x.id);
     let counts = {};
@@ -1241,7 +1257,7 @@ app.get('/foros', async (req, res) => {
       return `<a href="/foros/tema/${tm.id}" style="display:block;text-decoration:none;color:inherit;">
         <div class="comment-box" style="display:flex;justify-content:space-between;align-items:center;gap:12px;transition:transform 0.15s;">
           <div style="flex:1;min-width:0;">
-            <div style="font-weight:bold;color:white;margin-bottom:4px;">${pin}${closed}${escapeHtml(tm.titulo)}</div>
+            <div style="font-weight:bold;color:white;margin-bottom:4px;">${pin}${closed}${escapeHtml(tm.titulo)} <span style="color:#6b7280;font-weight:normal;font-size:12px;">#${tm.id}</span></div>
             <div style="font-size:12px;color:#9ca3af;">
               <span class="tag-category">${escapeHtml(tm.categoria)}</span>
               · por <span class="author">@${escapeHtml(tm.autor)}</span>
@@ -1265,6 +1281,7 @@ app.get('/foros', async (req, res) => {
           ${newBtn}
         </div>
         <form method="GET" action="/foros" class="filter-bar" style="margin-bottom:20px;">
+          <input type="text" name="buscar" placeholder="Buscar tema o ID..." value="${escapeHtml(req.query.buscar || "")}">
           <select name="categoria">${catOpts}</select>
           <button type="submit" class="btn-blue">Filtrar</button>
         </form>
@@ -1698,7 +1715,8 @@ app.get('/ia-mods', async (req, res) => {
 
     .ia-msg.bot pre code { background: none; padding: 0; color: #e5e7eb; display: block; white-space: pre; }
     .ia-msg.bot strong { color: #fff; }
-    .ia-form { display: flex; gap: 8px; margin-top: 12px; }
+    .ia-form { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+    .ia-form textarea { width: 100%; box-sizing: border-box; min-height: 72px; }
     .ia-form textarea { flex: 1; min-height: 48px; max-height: 120px; resize: vertical; background: #161920; color: white; border: 1px solid #374151; border-radius: 8px; padding: 10px; font-family: inherit; }
   </style></head><body>
     ${navbar(sesion, nNotif)}
@@ -1707,8 +1725,17 @@ app.get('/ia-mods', async (req, res) => {
       <p style="color:#9ca3af;font-size:14px;margin:0 0 14px 0;">Ayuda con <b>Lua / mods</b> de SM64 Co-op y con <b>dudas de esta web</b> (top mods, categorías, etc.).</p>
       <div class="ia-chat" id="iaChat"><div class="ia-msg sys">¡Hola! Soy <b style="color:#fbbf24;">ToadCode</b>. Preguntame por Lua, mods, o por la web (ej: ¿cuál es el mod más descargado?).</div></div>
       <form class="ia-form" id="iaForm">
-        <textarea id="iaInput" placeholder="Pregunta sobre Lua / mods..." required maxlength="2000"></textarea>
-        <button type="submit" class="btn-red" id="iaSend">Enviar</button>
+        <div id="iaAttachList" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
+        <textarea id="iaInput" placeholder="Pregunta sobre Lua / mods / la web..." maxlength="4000"></textarea>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <label class="btn-gray" style="padding:8px 12px;cursor:pointer;margin:0;">
+            📎 Adjuntar
+            <input type="file" id="iaFile" accept=".lua,.txt,.md,.json,.c,.h,.xml,.csv" multiple style="display:none;">
+          </label>
+          <button type="button" class="btn-gray" id="iaClearMem" title="Borra el historial guardado">🧹 Olvidar chat</button>
+          <button type="submit" class="btn-red" id="iaSend" style="margin-left:auto;">Enviar</button>
+        </div>
+        <p style="color:#6b7280;font-size:11px;margin:8px 0 0 0;">Archivos de texto (Lua, txt…) · máx. 80 KB c/u · la memoria se guarda en este navegador</p>
       </form>
       <p style="text-align:center;margin-top:14px;"><a href="/" class="btn-blue">← Volver al inicio</a></p>
     </div>
@@ -1719,7 +1746,7 @@ app.get('/ia-mods', async (req, res) => {
 
 
 
-app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
+app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
   try {
     const messages = Array.isArray(req.body && req.body.messages) ? req.body.messages : [];
     if (!messages.length) return res.status(400).json({ error: 'Mensaje vacío' });
@@ -1769,6 +1796,7 @@ app.post('/api/ia-mods', express.json({ limit: '32kb' }), async (req, res) => {
         '2) Dudas sobre ESTA web: qué es Coop Free Mods, categorías, top descargas, secciones, cómo publicar, cómo instalar, Discord, etc. Usá los DATOS ACTUALES de abajo; no inventes cifras.',
         'Si preguntan algo que no sea Lua/mods de Co-op NI la web Coop Free Mods, respondé breve que solo cubrís eso.',
         'Respondé en español, claro. En código Lua: bloques ```lua COMPLETOS (con end), sin cortar. Priorizá código completo si el script es largo.',
+        'El usuario puede adjuntar archivos de código: analizalos y corregilos. Tenés historial de la conversación: usá esa memoria para no repetir ni olvidar contexto previo.',
         'Markdown simple. Sin HTML.',
         '',
         siteCtx
@@ -1850,10 +1878,16 @@ app.get('/usuarios', async (req, res) => {
     const q = String(req.query.q || '').trim().toLowerCase();
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const perPage = 30;
-    let { data: users, error } = await supabase.from('usuarios').select('usuario,descripcion,fecha_registro,seguidores,banneado').order('fecha_registro', { ascending: false }).limit(500);
+    let { data: users, error } = await supabase.from('usuarios').select('id,usuario,descripcion,fecha_registro,seguidores,banneado').order('fecha_registro', { ascending: false }).limit(500);
     if (error) throw error;
     users = users || [];
-    if (q) users = users.filter(u => (u.usuario || '').toLowerCase().includes(q));
+    if (q) users = users.filter(u => {
+      if (/^\d+$/.test(q) && String(u.id) === q) return true;
+      return (u.usuario || '').toLowerCase().includes(q) || (u.descripcion || '').toLowerCase().includes(q);
+    });
+    if (/^\d+$/.test(q) && users.length === 1) {
+      return res.redirect('/user/' + encodeURIComponent(users[0].usuario));
+    }
     const total = users.length;
     const pages = Math.max(1, Math.ceil(total / perPage));
     const slice = users.slice((page - 1) * perPage, page * perPage);
@@ -1876,7 +1910,7 @@ app.get('/usuarios', async (req, res) => {
       } catch (e) {}
       return `<a href="/user/${escapeHtml(u.usuario)}" class="user-row">
         <div class="user-row-main">
-          <span class="user-row-name">@${escapeHtml(u.usuario)}${modB}${ban}</span>
+          <span class="user-row-name">@${escapeHtml(u.usuario)}${modB}${ban} <span style="color:#6b7280;font-weight:500;font-size:12px;">#${u.id != null ? u.id : ''}</span></span>
           ${desc ? `<span class="user-row-desc">${desc}</span>` : ''}
         </div>
         <div class="user-row-meta">
@@ -1918,7 +1952,7 @@ app.get('/usuarios', async (req, res) => {
         <h1 style="color:white;margin:0 0 8px 0;">👥 Usuarios</h1>
         <p style="color:#9ca3af;margin:0 0 14px 0;">${total} usuario${total===1?'':'s'}</p>
         <form method="GET" action="/usuarios" class="filters" style="margin-bottom:16px;">
-          <input type="text" name="q" value="${escapeHtml(q)}" placeholder="Buscar usuario..." style="max-width:280px;">
+          <input type="text" name="q" value="${escapeHtml(q)}" placeholder="Buscar usuario o ID..." style="max-width:280px;">
           <button type="submit" class="btn-blue">Buscar</button>
         </form>
         <div>${rows}</div>
