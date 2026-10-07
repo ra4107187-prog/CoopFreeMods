@@ -1813,7 +1813,7 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
     if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
       // API compatible con OpenAI de Google
       url = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-      model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+      model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
     } else if (process.env.GROQ_API_KEY || String(apiKey).startsWith('gsk_')) {
       url = 'https://api.groq.com/openai/v1/chat/completions';
       model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
@@ -1824,25 +1824,44 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
       url = 'https://api.openai.com/v1/chat/completions';
       model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
     }
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + apiKey
-      },
-      body: JSON.stringify({
-        model,
-        messages: [system, ...messages.map(m => ({
-          role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: String(m.content || '').slice(0, 8000)
-        }))],
-        temperature: 0.4,
-        max_tokens: 4096
-      })
-    });
-    const data = await r.json().catch(() => ({}));
+    const payloadMsgs = [system, ...messages.map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: String(m.content || '').slice(0, 8000)
+    }))];
+    async function callModel(mdl) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + apiKey
+        },
+        body: JSON.stringify({
+          model: mdl,
+          messages: payloadMsgs,
+          temperature: 0.4,
+          max_tokens: 4096
+        })
+      });
+      const data = await r.json().catch(() => ({}));
+      return { r, data, mdl };
+    }
+    let usedModel = model;
+    let { r, data } = await callModel(model);
+    // Gemini: reintentar con otros nombres si 404
+    if (!r.ok && r.status === 404 && (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)) {
+      const alts = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-flash-latest'];
+      for (const alt of alts) {
+        if (alt === model) continue;
+        const tryAlt = await callModel(alt);
+        if (tryAlt.r.ok) {
+          r = tryAlt.r; data = tryAlt.data; usedModel = alt;
+          break;
+        }
+        r = tryAlt.r; data = tryAlt.data; usedModel = alt;
+      }
+    }
     if (!r.ok) {
-      console.error('ia error', model, r.status, data);
+      console.error('ia error', usedModel, r.status, data);
       let msg = 'Error de la API de IA';
       if (data && data.error) {
         if (typeof data.error === 'string') msg = data.error;
@@ -1851,7 +1870,7 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
       } else if (data && data.message) msg = data.message;
       msg = String(msg).slice(0, 300);
       return res.status(502).json({
-        error: msg + ' (modelo: ' + model + ', status: ' + r.status + ')'
+        error: msg + ' (modelo: ' + usedModel + ', status: ' + r.status + ')'
       });
     }
     const reply = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
