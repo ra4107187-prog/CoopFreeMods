@@ -1849,7 +1849,7 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
     let { r, data } = await callModel(model);
     // Gemini: reintentar con otros nombres si 404
     if (!r.ok && r.status === 404 && (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)) {
-      const alts = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-flash-latest'];
+      const alts = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest'];
       for (const alt of alts) {
         if (alt === model) continue;
         const tryAlt = await callModel(alt);
