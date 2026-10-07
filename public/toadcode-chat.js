@@ -3,13 +3,44 @@
   var form = document.getElementById('iaForm');
   var input = document.getElementById('iaInput');
   var send = document.getElementById('iaSend');
+  var fileInput = document.getElementById('iaFile');
+  var attachList = document.getElementById('iaAttachList');
+  var clearMem = document.getElementById('iaClearMem');
   if (!chat || !form) return;
+
+  var MEM_KEY = 'cfm_toadcode_history';
   var history = [];
+  var pendingFiles = []; // {name, content}
   var fence = String.fromCharCode(96,96,96);
   var tick = String.fromCharCode(96);
 
   function esc(s) {
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function loadMemory() {
+    try {
+      var raw = localStorage.getItem(MEM_KEY);
+      if (!raw) return;
+      var arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return;
+      history = arr.filter(function(m){
+        return m && (m.role === 'user' || m.role === 'assistant') && m.content;
+      }).slice(-20);
+      history.forEach(function(m){
+        if (m.role === 'user') addUser(m.content, true);
+        else addBot(m.content, true);
+      });
+      if (history.length) {
+        addSys('Memoria restaurada (' + history.length + ' mensajes).');
+      }
+    } catch (e) {}
+  }
+
+  function saveMemory() {
+    try {
+      localStorage.setItem(MEM_KEY, JSON.stringify(history.slice(-20)));
+    } catch (e) {}
   }
 
   function parseTable(block) {
@@ -19,7 +50,7 @@
     var rows = [];
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
-      if (/^\|?[\s\-:|]+\|?$/.test(line)) continue; // separator
+      if (/^\|?[\s\-:|]+\|?$/.test(line)) continue;
       var cells = line.split('|');
       if (cells[0].trim() === '') cells.shift();
       if (cells.length && cells[cells.length-1].trim() === '') cells.pop();
@@ -45,14 +76,11 @@
     t = t.replace(reInline, '<code>$1</code>');
     t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     t = t.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    // literal br from models
-    t = t.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
     t = t.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
     return t;
   }
 
   function formatTextBlock(t) {
-    // tables: consecutive lines with |
     var lines = t.split('\n');
     var out = [];
     var buf = [];
@@ -60,30 +88,17 @@
       if (!buf.length) return;
       var chunk = buf.join('\n');
       buf = [];
-      // hr
       chunk = chunk.replace(/^---+$/gm, '<hr class="ia-hr">');
       chunk = chunk.replace(/^### (.+)$/gm, '<h4>$1</h4>');
       chunk = chunk.replace(/^## (.+)$/gm, '<h3>$1</h3>');
       chunk = chunk.replace(/^# (.+)$/gm, '<h3>$1</h3>');
-      // numbered headers like "2. Title"
       chunk = chunk.replace(/^(\d+\.\s+.+)$/gm, '<h4>$1</h4>');
-      // lists
       chunk = chunk.replace(/^(?:- |\* )(.+)$/gm, '<li>$1</li>');
       chunk = chunk.replace(/(?:<li>[\s\S]*?<\/li>\n?)+/g, function(m){ return '<ul>' + m + '</ul>'; });
       chunk = formatInline(chunk);
       chunk = chunk.replace(/\n\n+/g, '</p><p>');
       chunk = chunk.replace(/\n/g, '<br>');
       out.push('<p>' + chunk + '</p>');
-    }
-    function flushTable() {
-      if (!buf.length) return;
-      var html = parseTable(buf.join('\n'));
-      buf = [];
-      if (html) out.push(html);
-      else {
-        // wasn't a table, treat as text
-        buf = [arguments[0]]; // no
-      }
     }
     var mode = 'text';
     var tableBuf = [];
@@ -159,20 +174,20 @@
     try { document.execCommand('copy'); } catch (e) {}
     document.body.removeChild(ta);
   }
-  function addUser(text) {
+  function addUser(text, skipScroll) {
     var d = document.createElement('div');
     d.className = 'ia-msg user';
-    d.textContent = text;
+    d.textContent = text.length > 2000 ? text.slice(0, 2000) + '…' : text;
     chat.appendChild(d);
-    chat.scrollTop = chat.scrollHeight;
+    if (!skipScroll) chat.scrollTop = chat.scrollHeight;
   }
-  function addBot(text) {
+  function addBot(text, skipScroll) {
     var d = document.createElement('div');
     d.className = 'ia-msg bot';
     d.innerHTML = '<div class="ia-name">🍄 ToadCode</div>' + md(text);
     chat.appendChild(d);
     bindCopy(d);
-    chat.scrollTop = chat.scrollHeight;
+    if (!skipScroll) chat.scrollTop = chat.scrollHeight;
   }
   function addSys(text) {
     var d = document.createElement('div');
@@ -182,20 +197,88 @@
     chat.scrollTop = chat.scrollHeight;
     return d;
   }
+
+  function renderAttachList() {
+    if (!attachList) return;
+    if (!pendingFiles.length) {
+      attachList.style.display = 'none';
+      attachList.innerHTML = '';
+      return;
+    }
+    attachList.style.display = 'flex';
+    attachList.innerHTML = pendingFiles.map(function(f, idx) {
+      return '<span style="background:#1f2937;border:1px solid #374151;border-radius:999px;padding:4px 10px;font-size:12px;color:#e5e7eb;">' +
+        esc(f.name) + ' <button type="button" data-rm="' + idx + '" style="background:none;border:none;color:#f87171;cursor:pointer;font-weight:bold;">×</button></span>';
+    }).join('');
+    attachList.querySelectorAll('[data-rm]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        pendingFiles.splice(parseInt(btn.getAttribute('data-rm'), 10), 1);
+        renderAttachList();
+      });
+    });
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener('change', function() {
+      var files = Array.prototype.slice.call(fileInput.files || []);
+      fileInput.value = '';
+      files.forEach(function(file) {
+        if (file.size > 80 * 1024) {
+          addSys('"' + file.name + '" es muy grande (máx. 80 KB).');
+          return;
+        }
+        var reader = new FileReader();
+        reader.onload = function() {
+          var text = String(reader.result || '');
+          if (text.indexOf('\0') >= 0) {
+            addSys('"' + file.name + '" parece binario; solo texto/Lua.');
+            return;
+          }
+          pendingFiles.push({ name: file.name, content: text.slice(0, 60000) });
+          renderAttachList();
+        };
+        reader.readAsText(file);
+      });
+    });
+  }
+
+  if (clearMem) {
+    clearMem.addEventListener('click', function() {
+      history = [];
+      try { localStorage.removeItem(MEM_KEY); } catch (e) {}
+      chat.innerHTML = '';
+      addSys('Memoria borrada. Chat nuevo.');
+      addSys('¡Hola! Soy ToadCode. Preguntame por Lua, mods, o por la web.');
+    });
+  }
+
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
     var text = (input.value || '').trim();
-    if (!text) return;
+    if (!text && !pendingFiles.length) return;
+
+    var payload = text;
+    if (pendingFiles.length) {
+      var parts = pendingFiles.map(function(f) {
+        return '--- Archivo: ' + f.name + ' ---\n' + f.content;
+      });
+      payload = (text ? text + '\n\n' : '') + parts.join('\n\n');
+    }
+
     input.value = '';
-    addUser(text);
-    history.push({ role: 'user', content: text });
+    pendingFiles = [];
+    renderAttachList();
+
+    addUser(payload);
+    history.push({ role: 'user', content: payload });
+    saveMemory();
     send.disabled = true;
     var thinking = addSys('ToadCode está pensando…');
     try {
       var res = await fetch('/api/ia-mods', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history.slice(-12) })
+        body: JSON.stringify({ messages: history.slice(-16) })
       });
       var data = await res.json();
       if (thinking && thinking.parentNode) thinking.parentNode.removeChild(thinking);
@@ -203,6 +286,7 @@
       else {
         var reply = data.reply || '(sin respuesta)';
         history.push({ role: 'assistant', content: reply });
+        saveMemory();
         addBot(reply);
       }
     } catch (err) {
@@ -212,4 +296,6 @@
     send.disabled = false;
     input.focus();
   });
+
+  loadMemory();
 })();
