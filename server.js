@@ -160,6 +160,7 @@ function navbar(sesion, nNotif, extra) {
         <a href="/top">⭐ Top 10</a>
         <a href="/foros">💬 Foros</a>
         <a href="/como-instalar">📖 Cómo instalar</a>
+        <a href="/discord">💬 Discord</a>
         <a href="/config">⚙️ Config</a>
         ${mid}
         ${extra || ''}
@@ -460,9 +461,6 @@ app.get('/mods', async (req, res) => {
         <p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${pg.total} mods encontrados · Página ${pg.page} de ${pg.totalPages}</p>
         <div class="grid">${renderModCards(pg.slice, sesion)}</div>
         ${renderPagination('/mods', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria })}
-      </div>
-      <div class="discord-float-wrap">
-        <a href="/discord" target="_blank" rel="noopener" class="discord-float" title="Unite al Discord">Discord</a>
       </div>
     </body></html>`);
   } catch (err) {
@@ -1504,18 +1502,15 @@ app.get('/jugar-sm64', async (req, res) => {
   const nNotif = await countNotif(sesion.name);
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Jugar SM64 | Coop Free Mods</title>${estilosCSS}
   <style>
-    body.sm64-page { margin: 0; background: #000; }
+    body.sm64-page { margin: 0; background: #000; overflow: hidden; }
     #sm64App {
       display: flex; flex-direction: column; width: 100%; height: 100vh;
       background: #000;
     }
-    #sm64App:fullscreen, #sm64App:-webkit-full-screen {
-      width: 100vw; height: 100vh;
-    }
     .sm64-bar {
       display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
       padding: 10px 14px; background: rgba(15,17,21,0.96);
-      border-bottom: 2px solid #ff3333; position: relative; z-index: 20;
+      border-bottom: 2px solid #ff3333; position: relative; z-index: 30;
       flex-shrink: 0;
     }
     .sm64-bar a, .sm64-bar button {
@@ -1531,6 +1526,24 @@ app.get('/jugar-sm64', async (req, res) => {
     .sm64-frame {
       width: 100%; height: 100%; border: 0; display: block; background: #000;
     }
+    /* En fullscreen solo el juego: botón flotante para salir */
+    #sm64ExitFs {
+      display: none; position: fixed; top: 12px; right: 12px; z-index: 99999;
+      background: rgba(15,17,21,0.92); color: #fff; border: 2px solid #ff3333;
+      border-radius: 8px; padding: 10px 14px; font-weight: 800; font-size: 13px; cursor: pointer;
+    }
+    .sm64-frame-wrap:fullscreen #sm64ExitFs,
+    .sm64-frame-wrap:-webkit-full-screen #sm64ExitFs {
+      display: block;
+    }
+    .sm64-frame-wrap:fullscreen,
+    .sm64-frame-wrap:-webkit-full-screen {
+      width: 100vw; height: 100vh; background: #000;
+    }
+    .sm64-frame-wrap:fullscreen .sm64-frame,
+    .sm64-frame-wrap:-webkit-full-screen .sm64-frame {
+      width: 100%; height: 100%;
+    }
   </style>
   </head><body class="sm64-page">
     <div id="sm64App">
@@ -1540,7 +1553,8 @@ app.get('/jugar-sm64', async (req, res) => {
         <span class="sm64-controls-mini">WASD · A:X · B:C · Z:Espacio · Start:Enter · Cámara:flechas</span>
       </div>
       <div class="sm64-frame-wrap" id="sm64Wrap">
-        <iframe class="sm64-frame" id="sm64Frame" src="/public/sm64/index.html" title="SM64" allow="fullscreen; gamepad *; autoplay" allowfullscreen></iframe>
+        <button type="button" id="sm64ExitFs">✕ Salir pantalla completa</button>
+        <iframe class="sm64-frame" id="sm64Frame" src="/public/sm64/index.html" title="SM64" allow="fullscreen; gamepad *; autoplay" allowfullscreen tabindex="0"></iframe>
       </div>
     </div>
     <script>
@@ -1551,10 +1565,20 @@ app.get('/jugar-sm64', async (req, res) => {
         var audio = document.getElementById('cfm-bg-music');
         if (audio) audio.pause();
       } catch(e) {}
-      var app = document.getElementById('sm64App');
+      var wrap = document.getElementById('sm64Wrap');
+      var frame = document.getElementById('sm64Frame');
       var btn = document.getElementById('btnFullscreen');
+      var exitBtn = document.getElementById('sm64ExitFs');
       function isFs() {
         return document.fullscreenElement || document.webkitFullscreenElement;
+      }
+      function focusGame() {
+        try {
+          if (frame) {
+            frame.focus();
+            if (frame.contentWindow) frame.contentWindow.focus();
+          }
+        } catch (e) {}
       }
       function goFS() {
         if (isFs()) {
@@ -1562,11 +1586,17 @@ app.get('/jugar-sm64', async (req, res) => {
           else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
           return;
         }
-        if (app.requestFullscreen) app.requestFullscreen();
-        else if (app.webkitRequestFullscreen) app.webkitRequestFullscreen();
+        // Solo el área del juego → el iframe recibe teclado/ratón
+        if (wrap.requestFullscreen) wrap.requestFullscreen();
+        else if (wrap.webkitRequestFullscreen) wrap.webkitRequestFullscreen();
+        else if (frame.requestFullscreen) frame.requestFullscreen();
       }
       function onFsChange() {
-        btn.textContent = isFs() ? '✕ Salir pantalla completa' : '⛶ Pantalla completa';
+        var fs = isFs();
+        btn.textContent = fs ? '✕ Salir pantalla completa' : '⛶ Pantalla completa';
+        if (exitBtn) exitBtn.style.display = fs ? 'block' : 'none';
+        if (fs) setTimeout(focusGame, 150);
+        else setTimeout(focusGame, 50);
       }
       document.addEventListener('fullscreenchange', onFsChange);
       document.addEventListener('webkitfullscreenchange', onFsChange);
@@ -1575,10 +1605,20 @@ app.get('/jugar-sm64', async (req, res) => {
         e.stopPropagation();
         goFS();
       });
+      if (exitBtn) exitBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      });
+      // Clic en el juego → foco al iframe
+      wrap.addEventListener('click', function() { focusGame(); });
+      frame.addEventListener('load', function() { focusGame(); });
     })();
     </script>
   </body></html>`);
 });
+
 
 
 
@@ -1682,7 +1722,28 @@ app.get('/ia-mods', async (req, res) => {
   const nNotif = await countNotif(sesion.name);
   const page = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>ToadCode | Coop Free Mods</title>${estilosCSS}
   <style>
-    .ia-wrap { max-width: 720px; margin: 20px auto 40px; padding: 0 14px; }
+    
+    .ia-layout { display: flex; gap: 12px; align-items: stretch; }
+    .ia-history {
+      width: 180px; flex-shrink: 0; background: rgba(31,35,43,0.95);
+      border: 1px solid #2d3139; border-radius: 12px; padding: 10px; max-height: min(70vh, 640px);
+      overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+    }
+    .ia-history-head { display: flex; justify-content: space-between; align-items: center; color: #e5e7eb; font-size: 13px; }
+    .ia-history-list { display: flex; flex-direction: column; gap: 6px; }
+    .ia-hist-item {
+      text-align: left; background: #161920; border: 1px solid #374151; color: #ced4da;
+      border-radius: 8px; padding: 8px 10px; font-size: 12px; cursor: pointer; width: 100%;
+    }
+    .ia-hist-item:hover, .ia-hist-item.active { border-color: #e11d48; color: #fff; }
+    .ia-hist-item .ia-hist-date { color: #6b7280; font-size: 10px; display: block; margin-top: 4px; }
+    .ia-main { flex: 1; min-width: 0; }
+    @media (max-width: 700px) {
+      .ia-layout { flex-direction: column; }
+      .ia-history { width: 100%; max-height: 140px; }
+    }
+
+    .ia-wrap { max-width: 920px; margin: 20px auto 40px; padding: 0 14px; }
     .ia-chat { background: rgba(31,35,43,0.95); border: 1px solid #2d3139; border-radius: 12px; height: min(70vh, 640px); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
     .ia-msg { max-width: 92%; padding: 10px 12px; border-radius: 10px; font-size: 14px; line-height: 1.5; word-break: break-word; }
     .ia-msg.user { align-self: flex-end; background: #2563eb; color: white; white-space: pre-wrap; }
@@ -1723,6 +1784,15 @@ app.get('/ia-mods', async (req, res) => {
     <div class="ia-wrap">
       <h1 style="color:white;margin:0 0 6px 0;">🍄 ToadCode</h1>
       <p style="color:#9ca3af;font-size:14px;margin:0 0 14px 0;">Ayuda con <b>Lua / mods</b> de SM64 Co-op y con <b>dudas de esta web</b> (top mods, categorías, etc.).</p>
+      <div class="ia-layout">
+        <aside class="ia-history" id="iaHistoryPanel">
+          <div class="ia-history-head">
+            <b>Historial</b>
+            <button type="button" id="iaNewChat" class="btn-gray" style="padding:4px 8px;font-size:11px;">+ Nuevo</button>
+          </div>
+          <div id="iaHistoryList" class="ia-history-list"></div>
+        </aside>
+        <div class="ia-main">
       <div class="ia-chat" id="iaChat"><div class="ia-msg sys">¡Hola! Soy <b style="color:#fbbf24;">ToadCode</b>. Preguntame por Lua, mods, o por la web (ej: ¿cuál es el mod más descargado?).</div></div>
       <form class="ia-form" id="iaForm">
         <div id="iaAttachList" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
@@ -1738,6 +1808,8 @@ app.get('/ia-mods', async (req, res) => {
         <p style="color:#6b7280;font-size:11px;margin:8px 0 0 0;">Archivos de texto (Lua, txt…) · máx. 80 KB c/u · la memoria se guarda en este navegador</p>
       </form>
       <p style="text-align:center;margin-top:14px;"><a href="/" class="btn-blue">← Volver al inicio</a></p>
+        </div>
+      </div>
     </div>
     <script src="/public/toadcode-chat.js"></script>
   </body></html>`;
@@ -1813,7 +1885,7 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
     if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
       // API compatible con OpenAI de Google
       url = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-      model = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+      model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
     } else if (process.env.GROQ_API_KEY || String(apiKey).startsWith('gsk_')) {
       url = 'https://api.groq.com/openai/v1/chat/completions';
       model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
@@ -1849,7 +1921,7 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
     let { r, data } = await callModel(model);
     // Gemini: reintentar con otros nombres si 404
     if (!r.ok && r.status === 404 && (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)) {
-      const alts = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest'];
+      const alts = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-flash-latest'];
       for (const alt of alts) {
         if (alt === model) continue;
         const tryAlt = await callModel(alt);
