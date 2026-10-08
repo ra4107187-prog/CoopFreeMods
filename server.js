@@ -1942,7 +1942,7 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
 
     if (gemKey) {
       const primary = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-      const alts = [primary, 'gemini-2.5-flash'];
+      const alts = [primary, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-3.5-flash', 'gemini-3.8-flash'];
       const tried = new Set();
       for (const mdl of alts) {
         if (tried.has(mdl)) continue;
