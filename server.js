@@ -161,6 +161,7 @@ function navbar(sesion, nNotif, extra) {
         <a href="/foros">💬 Foros</a>
         <a href="/como-instalar">📖 Cómo instalar</a>
         <a href="/config">⚙️ Config</a>
+        ${mid}
         ${extra || ''}
         ${authLinks(sesion, nNotif || 0)}
       </div>
@@ -171,7 +172,6 @@ function navbar(sesion, nNotif, extra) {
         <a href="/novedades">📰 Novedades</a>
         <a href="/ia-mods">🍄 ToadCode</a>
         <a href="/discord">Discord</a>
-        ${mid}
       </div>
     </div>
   </div>
