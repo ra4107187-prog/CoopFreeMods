@@ -6,11 +6,16 @@
   var fileInput = document.getElementById('iaFile');
   var attachList = document.getElementById('iaAttachList');
   var clearMem = document.getElementById('iaClearMem');
+  var histList = document.getElementById('iaHistoryList');
+  var newChatBtn = document.getElementById('iaNewChat');
   if (!chat || !form) return;
 
-  var MEM_KEY = 'cfm_toadcode_history';
+  var SESS_KEY = 'cfm_toadcode_sessions';
+  var CUR_KEY = 'cfm_toadcode_current';
   var history = [];
-  var pendingFiles = []; // {name, content}
+  var sessionId = null;
+  var sessions = [];
+  var pendingFiles = [];
   var fence = String.fromCharCode(96,96,96);
   var tick = String.fromCharCode(96);
 
@@ -18,29 +23,91 @@
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  function loadMemory() {
+  function loadSessions() {
     try {
-      var raw = localStorage.getItem(MEM_KEY);
-      if (!raw) return;
-      var arr = JSON.parse(raw);
-      if (!Array.isArray(arr)) return;
-      history = arr.filter(function(m){
-        return m && (m.role === 'user' || m.role === 'assistant') && m.content;
-      }).slice(-20);
-      history.forEach(function(m){
-        if (m.role === 'user') addUser(m.content, true);
-        else addBot(m.content, true);
-      });
-      if (history.length) {
-        addSys('Memoria restaurada (' + history.length + ' mensajes).');
-      }
+      sessions = JSON.parse(localStorage.getItem(SESS_KEY) || '[]');
+      if (!Array.isArray(sessions)) sessions = [];
+    } catch (e) { sessions = []; }
+  }
+  function saveSessions() {
+    try {
+      // keep last 30 sessions
+      sessions = sessions.slice(0, 30);
+      localStorage.setItem(SESS_KEY, JSON.stringify(sessions));
+      localStorage.setItem(CUR_KEY, sessionId || '');
     } catch (e) {}
   }
-
-  function saveMemory() {
-    try {
-      localStorage.setItem(MEM_KEY, JSON.stringify(history.slice(-20)));
-    } catch (e) {}
+  function titleFromHistory(h) {
+    var u = (h || []).find(function(m){ return m.role === 'user'; });
+    var t = u ? String(u.content).replace(/\s+/g, ' ').trim() : 'Chat nuevo';
+    if (t.length > 42) t = t.slice(0, 42) + '…';
+    return t || 'Chat nuevo';
+  }
+  function persistCurrent() {
+    if (!sessionId) return;
+    var idx = sessions.findIndex(function(s){ return s.id === sessionId; });
+    var entry = {
+      id: sessionId,
+      title: titleFromHistory(history),
+      updated: Date.now(),
+      messages: history.slice(-40)
+    };
+    if (idx >= 0) sessions[idx] = entry;
+    else sessions.unshift(entry);
+    sessions.sort(function(a, b){ return (b.updated || 0) - (a.updated || 0); });
+    saveSessions();
+    renderHistoryList();
+  }
+  function renderHistoryList() {
+    if (!histList) return;
+    if (!sessions.length) {
+      histList.innerHTML = '<p style="color:#6b7280;font-size:11px;margin:0;">Sin chats guardados</p>';
+      return;
+    }
+    histList.innerHTML = sessions.map(function(s) {
+      var active = s.id === sessionId ? ' active' : '';
+      var d = '';
+      try { d = new Date(s.updated).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }); } catch(e) {}
+      return '<button type="button" class="ia-hist-item' + active + '" data-id="' + esc(s.id) + '">' +
+        esc(s.title || 'Chat') +
+        '<span class="ia-hist-date">' + esc(d) + '</span></button>';
+    }).join('');
+    histList.querySelectorAll('.ia-hist-item').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        openSession(btn.getAttribute('data-id'));
+      });
+    });
+  }
+  function clearChatDom() {
+    chat.innerHTML = '';
+  }
+  function openSession(id) {
+    var s = sessions.find(function(x){ return x.id === id; });
+    if (!s) return;
+    sessionId = id;
+    history = (s.messages || []).slice();
+    clearChatDom();
+    if (!history.length) {
+      addSys('¡Hola! Soy ToadCode. Preguntame por Lua, mods, o por la web.');
+    } else {
+      history.forEach(function(m) {
+        if (m.role === 'user') addUser(m.content, true);
+        else if (m.role === 'assistant') addBot(m.content, true);
+      });
+      addSys('Chat restaurado del historial.');
+    }
+    saveSessions();
+    renderHistoryList();
+    chat.scrollTop = chat.scrollHeight;
+  }
+  function startNewChat() {
+    sessionId = 's' + Date.now();
+    history = [];
+    clearChatDom();
+    addSys('¡Hola! Soy ToadCode. Preguntame por Lua, mods, o por la web.');
+    sessions.unshift({ id: sessionId, title: 'Chat nuevo', updated: Date.now(), messages: [] });
+    saveSessions();
+    renderHistoryList();
   }
 
   function parseTable(block) {
@@ -70,7 +137,6 @@
     html += '</table></div>';
     return html;
   }
-
   function formatInline(t) {
     var reInline = new RegExp(tick + '([^' + tick + ']+)' + tick, 'g');
     t = t.replace(reInline, '<code>$1</code>');
@@ -79,7 +145,6 @@
     t = t.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
     return t;
   }
-
   function formatTextBlock(t) {
     var lines = t.split('\n');
     var out = [];
@@ -127,7 +192,6 @@
     flushText();
     return out.join('');
   }
-
   function md(src) {
     var s = esc(src);
     var parts = s.split(fence);
@@ -144,7 +208,6 @@
     }
     return out;
   }
-
   function bindCopy(root) {
     var btns = root.querySelectorAll('.ia-copy-btn');
     for (var i = 0; i < btns.length; i++) {
@@ -197,7 +260,6 @@
     chat.scrollTop = chat.scrollHeight;
     return d;
   }
-
   function renderAttachList() {
     if (!attachList) return;
     if (!pendingFiles.length) {
@@ -217,7 +279,6 @@
       });
     });
   }
-
   if (fileInput) {
     fileInput.addEventListener('change', function() {
       var files = Array.prototype.slice.call(fileInput.files || []);
@@ -241,22 +302,25 @@
       });
     });
   }
-
   if (clearMem) {
     clearMem.addEventListener('click', function() {
-      history = [];
-      try { localStorage.removeItem(MEM_KEY); } catch (e) {}
-      chat.innerHTML = '';
-      addSys('Memoria borrada. Chat nuevo.');
-      addSys('¡Hola! Soy ToadCode. Preguntame por Lua, mods, o por la web.');
+      if (sessionId) {
+        sessions = sessions.filter(function(s){ return s.id !== sessionId; });
+        saveSessions();
+      }
+      startNewChat();
+      addSys('Chat actual borrado del historial.');
     });
   }
+  if (newChatBtn) newChatBtn.addEventListener('click', startNewChat);
 
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
     var text = (input.value || '').trim();
     if (!text && !pendingFiles.length) return;
-
+    if (!sessionId) {
+      sessionId = 's' + Date.now();
+    }
     var payload = text;
     if (pendingFiles.length) {
       var parts = pendingFiles.map(function(f) {
@@ -264,14 +328,12 @@
       });
       payload = (text ? text + '\n\n' : '') + parts.join('\n\n');
     }
-
     input.value = '';
     pendingFiles = [];
     renderAttachList();
-
     addUser(payload);
     history.push({ role: 'user', content: payload });
-    saveMemory();
+    persistCurrent();
     send.disabled = true;
     var thinking = addSys('ToadCode está pensando…');
     try {
@@ -286,7 +348,7 @@
       else {
         var reply = data.reply || '(sin respuesta)';
         history.push({ role: 'assistant', content: reply });
-        saveMemory();
+        persistCurrent();
         addBot(reply);
       }
     } catch (err) {
@@ -297,5 +359,33 @@
     input.focus();
   });
 
-  loadMemory();
+  // init
+  loadSessions();
+  // migrate old single history if any
+  try {
+    var old = localStorage.getItem('cfm_toadcode_history');
+    if (old && !sessions.length) {
+      var arr = JSON.parse(old);
+      if (Array.isArray(arr) && arr.length) {
+        sessions.push({
+          id: 's' + Date.now(),
+          title: titleFromHistory(arr),
+          updated: Date.now(),
+          messages: arr
+        });
+        saveSessions();
+        localStorage.removeItem('cfm_toadcode_history');
+      }
+    }
+  } catch (e) {}
+
+  var cur = null;
+  try { cur = localStorage.getItem(CUR_KEY); } catch (e) {}
+  if (cur && sessions.some(function(s){ return s.id === cur; })) {
+    openSession(cur);
+  } else if (sessions.length) {
+    openSession(sessions[0].id);
+  } else {
+    startNewChat();
+  }
 })();
