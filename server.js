@@ -160,9 +160,7 @@ function navbar(sesion, nNotif, extra) {
         <a href="/top">⭐ Top 10</a>
         <a href="/foros">💬 Foros</a>
         <a href="/como-instalar">📖 Cómo instalar</a>
-        <a href="/discord">💬 Discord</a>
         <a href="/config">⚙️ Config</a>
-        ${mid}
         ${extra || ''}
         ${authLinks(sesion, nNotif || 0)}
       </div>
@@ -172,6 +170,8 @@ function navbar(sesion, nNotif, extra) {
         <a href="/usuarios">👥 Usuarios</a>
         <a href="/novedades">📰 Novedades</a>
         <a href="/ia-mods">🍄 ToadCode</a>
+        <a href="/discord">Discord</a>
+        ${mid}
       </div>
     </div>
   </div>
@@ -1881,31 +1881,17 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
         error: 'La IA no está configurada. En Vercel agregá GEMINI_API_KEY (Google AI Studio).'
       });
     }
-    let url, model;
-    if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
-      // API compatible con OpenAI de Google
-      url = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-      model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-    } else if (process.env.GROQ_API_KEY || String(apiKey).startsWith('gsk_')) {
-      url = 'https://api.groq.com/openai/v1/chat/completions';
-      model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-    } else if (process.env.XAI_API_KEY) {
-      url = 'https://api.x.ai/v1/chat/completions';
-      model = process.env.XAI_MODEL || 'grok-3-latest';
-    } else {
-      url = 'https://api.openai.com/v1/chat/completions';
-      model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-    }
     const payloadMsgs = [system, ...messages.map(m => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: String(m.content || '').slice(0, 8000)
     }))];
-    async function callModel(mdl) {
+
+    async function callApi(url, key, mdl) {
       const r = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + apiKey
+          'Authorization': 'Bearer ' + key
         },
         body: JSON.stringify({
           model: mdl,
@@ -1917,23 +1903,63 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
       const data = await r.json().catch(() => ({}));
       return { r, data, mdl };
     }
-    let usedModel = model;
-    let { r, data } = await callModel(model);
-    // Gemini: reintentar con otros nombres si 404
-    if (!r.ok && r.status === 404 && (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)) {
-      const alts = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-flash-latest'];
-      for (const alt of alts) {
-        if (alt === model) continue;
-        const tryAlt = await callModel(alt);
-        if (tryAlt.r.ok) {
-          r = tryAlt.r; data = tryAlt.data; usedModel = alt;
-          break;
-        }
-        r = tryAlt.r; data = tryAlt.data; usedModel = alt;
+
+    let r, data, usedModel;
+    const gemKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    const groqKey = process.env.GROQ_API_KEY;
+    const xaiKey = process.env.XAI_API_KEY;
+
+    if (gemKey) {
+      const gemUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+      const primary = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+      const alts = [primary, 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-1.5-flash-8b'];
+      const tried = new Set();
+      for (const mdl of alts) {
+        if (tried.has(mdl)) continue;
+        tried.add(mdl);
+        const out = await callApi(gemUrl, gemKey, mdl);
+        r = out.r; data = out.data; usedModel = mdl;
+        if (out.r.ok) break;
+        // reintentar solo en 404/429/503
+        if (![404, 429, 503].includes(out.r.status)) break;
+      }
+    } else if (groqKey || String(apiKey).startsWith('gsk_')) {
+      const out = await callApi(
+        'https://api.groq.com/openai/v1/chat/completions',
+        groqKey || apiKey,
+        process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+      );
+      r = out.r; data = out.data; usedModel = out.mdl;
+    } else if (xaiKey) {
+      const out = await callApi(
+        'https://api.x.ai/v1/chat/completions',
+        xaiKey,
+        process.env.XAI_MODEL || 'grok-2-latest'
+      );
+      r = out.r; data = out.data; usedModel = out.mdl;
+    } else {
+      const out = await callApi(
+        'https://api.openai.com/v1/chat/completions',
+        apiKey,
+        process.env.OPENAI_MODEL || 'gpt-4o-mini'
+      );
+      r = out.r; data = out.data; usedModel = out.mdl;
+    }
+
+    // Si Gemini falló por saturación, intentar Groq como respaldo
+    if (r && !r.ok && gemKey && groqKey && [429, 503, 502].includes(r.status)) {
+      const out = await callApi(
+        'https://api.groq.com/openai/v1/chat/completions',
+        groqKey,
+        process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+      );
+      if (out.r.ok) {
+        r = out.r; data = out.data; usedModel = out.mdl + ' (fallback Groq)';
       }
     }
-    if (!r.ok) {
-      console.error('ia error', usedModel, r.status, data);
+
+    if (!r || !r.ok) {
+      console.error('ia error', usedModel, r && r.status, data);
       let msg = 'Error de la API de IA';
       if (data && data.error) {
         if (typeof data.error === 'string') msg = data.error;
@@ -1941,8 +1967,12 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
         else if (data.error.status) msg = String(data.error.status);
       } else if (data && data.message) msg = data.message;
       msg = String(msg).slice(0, 300);
+      const st = r ? r.status : 0;
+      if (st === 503) {
+        msg = 'Gemini está saturado (503). Probá en unos minutos o dejá GROQ_API_KEY en Vercel como respaldo.';
+      }
       return res.status(502).json({
-        error: msg + ' (modelo: ' + usedModel + ', status: ' + r.status + ')'
+        error: msg + ' (modelo: ' + (usedModel || '?') + ', status: ' + st + ')'
       });
     }
     const reply = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
