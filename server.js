@@ -1881,12 +1881,39 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
         error: 'La IA no está configurada. En Vercel agregá GEMINI_API_KEY (Google AI Studio).'
       });
     }
-    const payloadMsgs = [system, ...messages.map(m => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: String(m.content || '').slice(0, 8000)
-    }))];
+    // ---- Llamada a IA (Gemini nativo + fallback Groq) ----
+    async function callGeminiNative(key, modelId, msgs) {
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent?key=' + encodeURIComponent(key);
+      // Convertir mensajes OpenAI-like a formato Gemini
+      const contents = [];
+      let systemText = '';
+      for (const m of msgs) {
+        if (m.role === 'system') {
+          systemText += (systemText ? '\n' : '') + m.content;
+          continue;
+        }
+        contents.push({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: String(m.content || '') }]
+        });
+      }
+      const body = {
+        contents,
+        generationConfig: { temperature: 0.4, maxOutputTokens: 4096 }
+      };
+      if (systemText) {
+        body.systemInstruction = { parts: [{ text: systemText }] };
+      }
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await r.json().catch(() => ({}));
+      return { r, data, mdl: modelId };
+    }
 
-    async function callApi(url, key, mdl) {
+    async function callOpenAICompat(url, key, mdl, msgs) {
       const r = await fetch(url, {
         method: 'POST',
         headers: {
@@ -1895,7 +1922,7 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
         },
         body: JSON.stringify({
           model: mdl,
-          messages: payloadMsgs,
+          messages: msgs,
           temperature: 0.4,
           max_tokens: 4096
         })
@@ -1904,61 +1931,76 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
       return { r, data, mdl };
     }
 
+    const allMsgs = [system, ...messages.map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: String(m.content || '').slice(0, 8000)
+    }))];
+
     let r, data, usedModel;
     const gemKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     const groqKey = process.env.GROQ_API_KEY;
-    const xaiKey = process.env.XAI_API_KEY;
 
     if (gemKey) {
-      const gemUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-      const primary = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-      const alts = [primary, 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-1.5-flash-8b'];
+      const primary = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+      const alts = [primary, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-3.5-flash', 'gemini-3.8-flash'];
       const tried = new Set();
       for (const mdl of alts) {
         if (tried.has(mdl)) continue;
         tried.add(mdl);
-        const out = await callApi(gemUrl, gemKey, mdl);
+        const out = await callGeminiNative(gemKey, mdl, allMsgs);
         r = out.r; data = out.data; usedModel = mdl;
-        if (out.r.ok) break;
-        // reintentar solo en 404/429/503
-        if (![404, 429, 503].includes(out.r.status)) break;
+        if (out.r.ok && data.candidates && data.candidates[0]) break;
+        if (out.r.status && ![404, 429, 503].includes(out.r.status)) break;
       }
     } else if (groqKey || String(apiKey).startsWith('gsk_')) {
-      const out = await callApi(
+      const out = await callOpenAICompat(
         'https://api.groq.com/openai/v1/chat/completions',
         groqKey || apiKey,
-        process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+        process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+        allMsgs
       );
       r = out.r; data = out.data; usedModel = out.mdl;
-    } else if (xaiKey) {
-      const out = await callApi(
+    } else if (process.env.XAI_API_KEY) {
+      const out = await callOpenAICompat(
         'https://api.x.ai/v1/chat/completions',
-        xaiKey,
-        process.env.XAI_MODEL || 'grok-2-latest'
+        process.env.XAI_API_KEY,
+        process.env.XAI_MODEL || 'grok-2-latest',
+        allMsgs
       );
       r = out.r; data = out.data; usedModel = out.mdl;
     } else {
-      const out = await callApi(
+      const out = await callOpenAICompat(
         'https://api.openai.com/v1/chat/completions',
         apiKey,
-        process.env.OPENAI_MODEL || 'gpt-4o-mini'
+        process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        allMsgs
       );
       r = out.r; data = out.data; usedModel = out.mdl;
     }
 
-    // Si Gemini falló por saturación, intentar Groq como respaldo
-    if (r && !r.ok && gemKey && groqKey && [429, 503, 502].includes(r.status)) {
-      const out = await callApi(
+    // Fallback Groq si Gemini falla
+    if (r && !r.ok && gemKey && groqKey && [404, 429, 503, 502].includes(r.status)) {
+      const out = await callOpenAICompat(
         'https://api.groq.com/openai/v1/chat/completions',
         groqKey,
-        process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+        process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+        allMsgs
       );
       if (out.r.ok) {
         r = out.r; data = out.data; usedModel = out.mdl + ' (fallback Groq)';
       }
     }
 
-    if (!r || !r.ok) {
+    // Extraer respuesta (Gemini nativo o OpenAI-compat)
+    let reply = '';
+    if (data && data.candidates && data.candidates[0] && data.candidates[0].content) {
+      const parts = data.candidates[0].content.parts || [];
+      reply = parts.map(p => p.text || '').join('');
+    } else if (data && data.choices && data.choices[0] && data.choices[0].message) {
+      reply = data.choices[0].message.content || '';
+    }
+
+    if (!r || !r.ok || !reply) {
       console.error('ia error', usedModel, r && r.status, data);
       let msg = 'Error de la API de IA';
       if (data && data.error) {
@@ -1966,16 +2008,15 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
         else if (data.error.message) msg = data.error.message;
         else if (data.error.status) msg = String(data.error.status);
       } else if (data && data.message) msg = data.message;
+      else if (!reply && r && r.ok) msg = 'Respuesta vacía del modelo';
       msg = String(msg).slice(0, 300);
       const st = r ? r.status : 0;
-      if (st === 503) {
-        msg = 'Gemini está saturado (503). Probá en unos minutos o dejá GROQ_API_KEY en Vercel como respaldo.';
-      }
+      if (st === 503) msg = 'Gemini saturado (503). Probá en unos minutos o configurá GROQ_API_KEY.';
+      if (st === 404) msg = 'Modelo no encontrado (404). En Vercel poné GEMINI_MODEL=gemini-2.5-flash';
       return res.status(502).json({
         error: msg + ' (modelo: ' + (usedModel || '?') + ', status: ' + st + ')'
       });
     }
-    const reply = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     res.json({ reply: reply || '(vacío)' });
   } catch (e) {
     console.error(e);
