@@ -123,8 +123,29 @@ function mapVideo(row) {
     modUrl: row.mod_url || null,
     thumbnail: row.thumbnail_url || null,
     vistas: row.vistas || 0,
+    likes: row.likes || 0,
+    usuariosLike: normalizeStringArray(row.usuarios_like),
     created_at: row.created_at
   };
+}
+function renderVideoCards(videos) {
+  if (!videos || !videos.length) return '';
+  return videos.map(v => {
+    if (!v) return '';
+    const thumb = v.thumbnail || youtubeThumb(v.youtubeId);
+    return `<div class="card">
+      <a href="/cooptube/v/${v.id}" style="text-decoration:none;color:inherit;display:block;">
+        <div class="card-img-box" style="position:relative;">
+          <img src="${escapeHtml(thumb)}" alt="" style="width:100%;height:100%;object-fit:cover;">
+          <span style="position:absolute;top:8px;left:8px;background:#e11d48;color:#fff;font-size:11px;font-weight:800;padding:2px 7px;border-radius:4px;">VIDEO</span>
+        </div>
+        <div class="card-content">
+          <h3 style="color:white;margin:0 0 6px 0;">${escapeHtml(v.titulo)} <span style="color:#9ca3af;font-size:12px;font-weight:600;">(video)</span></h3>
+          <p style="color:#9ca3af;font-size:12px;margin:0;">👁 ${v.vistas || 0} · ⭐ ${v.likes || 0} · ${escapeHtml(v.categoria || '')}</p>
+        </div>
+      </a>
+    </div>`;
+  }).join('');
 }
 function isAllowedImageUrl(url) {
   try {
@@ -156,13 +177,32 @@ function isAllowedModLink(url) {
   } catch (e) { return false; }
 }
 
+function normalizeStringArray(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.map(String);
+  if (typeof val === 'string') {
+    try {
+      const p = JSON.parse(val);
+      return Array.isArray(p) ? p.map(String) : [];
+    } catch (e) { return []; }
+  }
+  return [];
+}
+function formatFecha(val) {
+  if (!val) return '—';
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    return d.toLocaleDateString('es-AR');
+  } catch (e) { return '—'; }
+}
 function mapMod(row) {
   if (!row) return null;
   return {
     id: row.id, titulo: row.titulo, descripcion: row.descripcion, autor: row.autor,
     version: row.version, categoria: row.categoria, nombreArchivoReal: row.nombre_archivo_real,
     archivoPath: row.archivo_path, rutasImagenes: row.rutas_imagenes || [],
-    descargas: row.descargas || 0, likes: row.likes || 0, usuariosLike: row.usuarios_like || [],
+    descargas: row.descargas || 0, likes: row.likes || 0, usuariosLike: normalizeStringArray(row.usuarios_like),
     comentarios: row.comentarios || [], historialActualizaciones: row.historial_actualizaciones || [],
     fechaCreacion: row.fecha_creacion, pesoArchivo: row.peso_archivo
   };
@@ -170,8 +210,11 @@ function mapMod(row) {
 function mapUser(row) {
   if (!row) return null;
   return {
-    usuario: row.usuario, descripcion: row.descripcion, fechaRegistro: row.fecha_registro,
-    seguidores: row.seguidores || [], banneado: !!row.banneado
+    usuario: row.usuario,
+    descripcion: row.descripcion || '',
+    fechaRegistro: formatFecha(row.fecha_registro),
+    seguidores: normalizeStringArray(row.seguidores),
+    banneado: !!row.banneado
   };
 }
 async function uploadToStorage(bucket, filePath, buffer, contentType) {
@@ -600,44 +643,56 @@ app.get('/favoritos', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name) return res.redirect('/login');
   const nNotif = await countNotif(sesion.name);
-  const { data } = await supabase.from('mods').select('*').order('likes', { ascending: false });
-  const mods = (data || []).map(mapMod).filter(m => (m.usuariosLike || []).includes(sesion.name));
-  let vids = [];
   try {
-    const { data: vdata } = await supabase.from('videos').select('*').order('likes', { ascending: false }).limit(200);
-    vids = (vdata || []).map(mapVideo).filter(v => v && (v.usuariosLike || []).includes(sesion.name));
-  } catch (e) {}
-  // combinar: videos primero luego mods en grid
-  const comboHtml = renderVideoCards(vids) + (mods.length ? renderModCards(mods, sesion) : (vids.length ? '' : renderModCards([], sesion)));
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Favoritos | Coop Free Mods</title>${estilosCSS}</head><body>
-    ${navbar(sesion, nNotif)}
-    <div class="main-container"><h2>⭐ Mis favoritos</h2>
-    <p style="color:#9ca3af;font-size:13px;">Mods y videos a los que les diste like.</p>
-    <div class="grid">${comboHtml}</div>
-    </div></body></html>`);
+    const { data } = await supabase.from('mods').select('*').order('likes', { ascending: false });
+    const mods = (data || []).map(mapMod).filter(m => m && Array.isArray(m.usuariosLike) && m.usuariosLike.includes(sesion.name));
+    let vids = [];
+    try {
+      const { data: vdata } = await supabase.from('videos').select('*').limit(300);
+      vids = (vdata || []).map(mapVideo).filter(v => v && Array.isArray(v.usuariosLike) && v.usuariosLike.includes(sesion.name));
+    } catch (e) { console.error('favoritos videos', e); }
+    let comboHtml = '';
+    if (vids.length) comboHtml += renderVideoCards(vids);
+    if (mods.length) comboHtml += renderModCards(mods, sesion);
+    if (!comboHtml) comboHtml = '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">Todavía no tenés favoritos. Dale like a un mod o video.</p>';
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Favoritos | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container"><h2>⭐ Mis favoritos</h2>
+      <p style="color:#9ca3af;font-size:13px;">Mods y videos a los que les diste like.</p>
+      <div class="grid">${comboHtml}</div>
+      </div></body></html>`);
+  } catch (e) {
+    console.error('favoritos', e);
+    pageError(res, 500, 'Error', 'No se pudieron cargar los favoritos.', sesion, nNotif);
+  }
 });
 
 app.get('/mis-mods', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name) return res.redirect('/login');
   const nNotif = await countNotif(sesion.name);
-  const { data } = await supabase.from('mods').select('*').eq('autor', sesion.name).order('id', { ascending: false });
-  const mods = (data || []).map(mapMod);
-  let vids = [];
   try {
-    const { data: vdata } = await supabase.from('videos').select('*').eq('autor', sesion.name).order('created_at', { ascending: false }).limit(100);
-    vids = (vdata || []).map(mapVideo).filter(Boolean);
-  } catch (e) {}
-  const pg = paginateList(mods, req.query.page, 30);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mis mods | Coop Free Mods</title>${estilosCSS}</head><body>
-    ${navbar(sesion, nNotif)}
-    <div class="main-container">
-      <h2>📦 Mis mods</h2>
-      <div class="grid">${renderModCards(pg.slice, sesion)}</div>
-      ${renderPagination('/mis-mods', pg.page, pg.totalPages)}
-      <h2 style="margin-top:28px;">📺 Mis videos <span style="color:#9ca3af;font-size:14px;font-weight:600;">(video)</span></h2>
-      <div class="grid">${vids.length ? renderVideoCards(vids) : '<p style="color:#9ca3af;">No publicaste videos en CoopTube todavía.</p>'}</div>
-    </div></body></html>`);
+    const { data } = await supabase.from('mods').select('*').eq('autor', sesion.name).order('id', { ascending: false });
+    const mods = (data || []).map(mapMod).filter(Boolean);
+    let vids = [];
+    try {
+      const { data: vdata } = await supabase.from('videos').select('*').eq('autor', sesion.name).order('created_at', { ascending: false }).limit(100);
+      vids = (vdata || []).map(mapVideo).filter(Boolean);
+    } catch (e) { console.error('mis-mods videos', e); }
+    const pg = paginateList(mods, req.query.page, 30);
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mis mods | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <h2>📦 Mis mods</h2>
+        <div class="grid">${renderModCards(pg.slice, sesion)}</div>
+        ${renderPagination('/mis-mods', pg.page, pg.totalPages)}
+        <h2 style="margin-top:28px;">📺 Mis videos <span style="color:#9ca3af;font-size:14px;font-weight:600;">(video)</span></h2>
+        <div class="grid">${vids.length ? renderVideoCards(vids) : '<p style="color:#9ca3af;">No publicaste videos en CoopTube todavía.</p>'}</div>
+      </div></body></html>`);
+  } catch (e) {
+    console.error('mis-mods', e);
+    pageError(res, 500, 'Error', 'No se pudieron cargar tus mods.', sesion, nNotif);
+  }
 });
 
 app.get('/notificaciones', async (req, res) => {
@@ -794,6 +849,8 @@ app.get('/user/:username', async (req, res) => {
     const username = req.params.username;
     let { data: userRow } = await supabase.from('usuarios').select('*').eq('usuario', username).single();
     const user = userRow ? mapUser(userRow) : { usuario: username, descripcion: 'Usuario', fechaRegistro: '—', seguidores: [], banneado: false };
+    if (!user.seguidores) user.seguidores = [];
+    if (!Array.isArray(user.seguidores)) user.seguidores = normalizeStringArray(user.seguidores);
     const { data: modsData } = await supabase.from('mods').select('*').eq('autor', username).order('id', { ascending: false });
     const userMods = (modsData || []).map(mapMod);
     let userVideos = [];
@@ -1040,21 +1097,26 @@ app.get('/download/:id', async (req, res) => {
 app.get('/like/:id', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name) return res.redirect('/login');
-  const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
-  if (!data) return res.redirect('/');
-  let likes = data.likes || 0;
-  let usuariosLike = data.usuarios_like || [];
-  const idx = usuariosLike.indexOf(sesion.name);
-  if (idx === -1) {
-    likes++; usuariosLike.push(sesion.name);
-    if (data.autor !== sesion.name) {
-      await crearNotif(data.autor, 'like', `@${sesion.name} dio like a "${data.titulo}"`, `/mod/${data.id}`);
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { data } = await supabase.from('mods').select('*').eq('id', id).single();
+    if (!data) return res.redirect('/');
+    let likes = data.likes || 0;
+    let usuariosLike = normalizeStringArray(data.usuarios_like);
+    const idx = usuariosLike.indexOf(sesion.name);
+    if (idx === -1) {
+      likes++;
+      usuariosLike.push(sesion.name);
+      if (data.autor !== sesion.name) {
+        await crearNotif(data.autor, 'like', `@${sesion.name} dio like a "${data.titulo}"`, `/mod/${data.id}`);
+      }
+    } else {
+      likes = Math.max(0, likes - 1);
+      usuariosLike.splice(idx, 1);
     }
-  } else {
-    likes--; usuariosLike.splice(idx, 1);
-  }
-  await supabase.from('mods').update({ likes, usuarios_like: usuariosLike }).eq('id', data.id);
-  res.redirect(req.headers.referer || '/');
+    await supabase.from('mods').update({ likes, usuarios_like: usuariosLike }).eq('id', data.id);
+  } catch (e) { console.error('like mod', e); }
+  res.redirect('/mod/' + (parseInt(req.params.id, 10) || ''));
 });
 
 app.post('/comment/:id', async (req, res) => {
@@ -2691,23 +2753,28 @@ app.get('/like-video/:id', async (req, res) => {
   if (!sesion.name) return res.redirect('/login');
   const id = parseInt(req.params.id, 10);
   if (!id) return res.redirect('/cooptube');
-  const { data } = await supabase.from('videos').select('*').eq('id', id).single();
-  if (!data) return res.redirect('/cooptube');
-  let likes = data.likes || 0;
-  let usuariosLike = data.usuarios_like || [];
-  if (!Array.isArray(usuariosLike)) usuariosLike = [];
-  const idx = usuariosLike.indexOf(sesion.name);
-  if (idx === -1) {
-    likes++;
-    usuariosLike.push(sesion.name);
-    if (data.autor !== sesion.name) {
-      await crearNotif(data.autor, 'like', `@${sesion.name} dio like a tu video "${data.titulo}"`, `/cooptube/v/${id}`);
+  try {
+    const { data, error } = await supabase.from('videos').select('*').eq('id', id).single();
+    if (error || !data) {
+      console.error('like-video fetch', error);
+      return res.redirect('/cooptube/v/' + id);
     }
-  } else {
-    likes = Math.max(0, likes - 1);
-    usuariosLike.splice(idx, 1);
-  }
-  await supabase.from('videos').update({ likes, usuarios_like: usuariosLike }).eq('id', id);
+    let likes = data.likes || 0;
+    let usuariosLike = normalizeStringArray(data.usuarios_like);
+    const idx = usuariosLike.indexOf(sesion.name);
+    if (idx === -1) {
+      likes++;
+      usuariosLike.push(sesion.name);
+      if (data.autor !== sesion.name) {
+        await crearNotif(data.autor, 'like', `@${sesion.name} dio like a tu video "${data.titulo}"`, `/cooptube/v/${id}`);
+      }
+    } else {
+      likes = Math.max(0, likes - 1);
+      usuariosLike.splice(idx, 1);
+    }
+    const { error: upErr } = await supabase.from('videos').update({ likes, usuarios_like: usuariosLike }).eq('id', id);
+    if (upErr) console.error('like-video update', upErr);
+  } catch (e) { console.error('like-video', e); }
   res.redirect('/cooptube/v/' + id);
 });
 
