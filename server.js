@@ -77,6 +77,55 @@ function escapeHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function isMod(user) { return user === MODERADOR; }
+
+const COOPTUBE_CATS = ['Tutoriales', 'Showcase', 'Gameplay', 'Speedrun', 'Mods', 'Lua / código', 'Noticias', 'Otros'];
+
+function extractYoutubeId(url) {
+  if (!url) return null;
+  try {
+    const u = new URL(String(url).trim());
+    const h = u.hostname.replace(/^www\./, '').toLowerCase();
+    if (h === 'youtu.be') {
+      const id = u.pathname.split('/').filter(Boolean)[0];
+      return id && /^[\w-]{11}$/.test(id) ? id : null;
+    }
+    if (h === 'youtube.com' || h === 'm.youtube.com' || h === 'music.youtube.com') {
+      if (u.pathname.startsWith('/shorts/')) {
+        const id = u.pathname.split('/')[2];
+        return id && /^[\w-]{11}$/.test(id) ? id : null;
+      }
+      if (u.pathname.startsWith('/embed/')) {
+        const id = u.pathname.split('/')[2];
+        return id && /^[\w-]{11}$/.test(id) ? id : null;
+      }
+      if (u.pathname.startsWith('/live/')) {
+        const id = u.pathname.split('/')[2];
+        return id && /^[\w-]{11}$/.test(id) ? id : null;
+      }
+      const v = u.searchParams.get('v');
+      return v && /^[\w-]{11}$/.test(v) ? v : null;
+    }
+  } catch (e) {}
+  return null;
+}
+function youtubeThumb(id) {
+  return 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg';
+}
+function mapVideo(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    titulo: row.titulo,
+    descripcion: row.descripcion || '',
+    autor: row.autor,
+    youtubeId: row.youtube_id,
+    categoria: row.categoria || 'Otros',
+    modId: row.mod_id || null,
+    vistas: row.vistas || 0,
+    created_at: row.created_at
+  };
+}
+
 function isAllowedModLink(url) {
   try {
     const u = new URL(url);
@@ -170,6 +219,7 @@ function navbar(sesion, nNotif, extra) {
       <div class="nav-links nav-links-sub">
         <a href="/usuarios">👥 Usuarios</a>
         <a href="/novedades">📰 Novedades</a>
+        <a href="/cooptube">📺 CoopTube</a>
         <a href="/ia-mods">🍄 ToadCode</a>
         <a href="/discord">Discord</a>
       </div>
@@ -1851,7 +1901,7 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
         '- Top mods más descargados:\n' + (top || 'sin datos'),
         '- Categorías y cantidad: ' + (catList || 'sin datos'),
         '- Versiones: ' + (verList || 'sin datos'),
-        '- Secciones de la web: Inicio, Mods, Top 10, Foros, Cómo instalar, Config, Usuarios, Novedades, ToadCode (este chat), Discord, Mis mods, Favoritos, Notificaciones.',
+        '- Secciones de la web: Inicio, Mods, Top 10, Foros, Cómo instalar, Config, Usuarios, Novedades, CoopTube (videos YouTube), ToadCode (este chat), Discord, Mis mods, Favoritos, Notificaciones.',
         '- ToadCode: asistente de la web (Lua/mods + dudas del sitio).',
         '- Moderador principal: SuperAaron64.'
       ].join('\n');
@@ -1875,7 +1925,7 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
       ].join('\n')
     };
     // Preferir Gemini Flash; luego Groq / xAI
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GROQ_API_KEY || process.env.XAI_API_KEY || process.env.OPENAI_API_KEY || '';
+    const apiKey = String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GROQ_API_KEY || process.env.XAI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
     if (!apiKey) {
       return res.status(503).json({
         error: 'La IA no está configurada. En Vercel agregá GEMINI_API_KEY (Google AI Studio).'
@@ -1883,8 +1933,8 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
     }
     // ---- Llamada a IA (Gemini nativo + fallback Groq) ----
     async function callGeminiNative(key, modelId, msgs) {
-      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent?key=' + encodeURIComponent(key);
-      // Convertir mensajes OpenAI-like a formato Gemini
+      const cleanKey = String(key || '').trim();
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(modelId) + ':generateContent';
       const contents = [];
       let systemText = '';
       for (const m of msgs) {
@@ -1897,6 +1947,10 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
           parts: [{ text: String(m.content || '') }]
         });
       }
+      // Gemini exige que el primer content sea "user"
+      if (contents.length && contents[0].role !== 'user') {
+        contents.unshift({ role: 'user', parts: [{ text: '(continuar)' }] });
+      }
       const body = {
         contents,
         generationConfig: { temperature: 0.4, maxOutputTokens: 4096 }
@@ -1906,11 +1960,28 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
       }
       const r = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': cleanKey
+        },
         body: JSON.stringify(body)
       });
       const data = await r.json().catch(() => ({}));
       return { r, data, mdl: modelId };
+    }
+
+    async function listGeminiModels(key) {
+      const cleanKey = String(key || '').trim();
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models';
+      const r = await fetch(url, {
+        headers: { 'x-goog-api-key': cleanKey }
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) return { ok: false, status: r.status, data, names: [] };
+      const names = (data.models || [])
+        .map(m => (m.name || '').replace(/^models\//, ''))
+        .filter(n => n && /flash|pro|gemma/i.test(n) && !/embed|tts|image|audio|live/i.test(n));
+      return { ok: true, status: r.status, data, names };
     }
 
     async function callOpenAICompat(url, key, mdl, msgs) {
@@ -1941,16 +2012,29 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
     const groqKey = process.env.GROQ_API_KEY;
 
     if (gemKey) {
-      const primary = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-      const alts = [primary, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-3.5-flash', 'gemini-3.8-flash'];
+      const primary = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
+      let alts = [primary, 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro'];
+      // Descubrir modelos reales de la key
+      try {
+        const listed = await listGeminiModels(gemKey);
+        if (listed.ok && listed.names.length) {
+          alts = [primary].concat(listed.names.filter(n => n !== primary));
+        } else if (!listed.ok) {
+          // key inválida o API no habilitada
+          r = { ok: false, status: listed.status };
+          data = listed.data;
+          usedModel = 'listModels';
+        }
+      } catch (e) { console.error('listModels', e); }
       const tried = new Set();
       for (const mdl of alts) {
-        if (tried.has(mdl)) continue;
+        if (!mdl || tried.has(mdl)) continue;
         tried.add(mdl);
         const out = await callGeminiNative(gemKey, mdl, allMsgs);
         r = out.r; data = out.data; usedModel = mdl;
         if (out.r.ok && data.candidates && data.candidates[0]) break;
-        if (out.r.status && ![404, 429, 503].includes(out.r.status)) break;
+        // seguir probando en 404
+        if (out.r.status && ![404, 429, 503].includes(out.r.status) && out.r.status !== 400) break;
       }
     } else if (groqKey || String(apiKey).startsWith('gsk_')) {
       const out = await callOpenAICompat(
@@ -2012,7 +2096,9 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
       msg = String(msg).slice(0, 300);
       const st = r ? r.status : 0;
       if (st === 503) msg = 'Gemini saturado (503). Probá en unos minutos o configurá GROQ_API_KEY.';
-      if (st === 404) msg = 'Modelo no encontrado (404). En Vercel poné GEMINI_MODEL=gemini-2.5-flash';
+      if (st === 404) msg = 'Modelo/API no encontrado (404). Revisá que GEMINI_API_KEY sea de AI Studio (empieza con AIza) y que Generative Language API esté activa. Probá GEMINI_MODEL=gemini-2.0-flash';
+      if (st === 400 && /API key/i.test(msg)) msg = 'API key de Gemini inválida. Regenerá la key en aistudio.google.com';
+      if (st === 403) msg = 'Sin permiso (403). Activá Generative Language API en Google Cloud o regenerá la key.';
       return res.status(502).json({
         error: msg + ' (modelo: ' + (usedModel || '?') + ', status: ' + st + ')'
       });
@@ -2267,6 +2353,232 @@ app.get('/novedades/borrar/:id', async (req, res) => {
   if (!id) return res.redirect('/novedades');
   await supabase.from('novedades').delete().eq('id', id);
   res.redirect('/novedades');
+});
+
+
+// ---------- COOPTUBE ----------
+app.get('/cooptube', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  try {
+    const buscar = String(req.query.buscar || '').trim().toLowerCase();
+    const cat = req.query.categoria || 'Todas';
+    const { data, error } = await supabase.from('videos').select('*').order('created_at', { ascending: false }).limit(300);
+    if (error) throw error;
+    let list = (data || []).map(mapVideo).filter(Boolean);
+    if (buscar) {
+      list = list.filter(v => {
+        if (/^\d+$/.test(buscar) && String(v.id) === buscar) return true;
+        return (v.titulo || '').toLowerCase().includes(buscar)
+          || (v.descripcion || '').toLowerCase().includes(buscar)
+          || (v.autor || '').toLowerCase().includes(buscar)
+          || (v.youtubeId || '').toLowerCase() === buscar;
+      });
+      if (/^\d+$/.test(buscar) && list.length === 1) {
+        return res.redirect('/cooptube/v/' + list[0].id);
+      }
+    }
+    if (cat !== 'Todas') list = list.filter(v => v.categoria === cat);
+    const pg = paginateList(list, req.query.page, 30);
+    const catOpts = ['Todas', ...COOPTUBE_CATS].map(c =>
+      `<option value="${escapeHtml(c)}" ${cat===c?'selected':''}>${escapeHtml(c)}</option>`
+    ).join('');
+    const cards = pg.slice.map(v => {
+      const thumb = youtubeThumb(v.youtubeId);
+      return `<div class="card" style="position:relative;">
+        <a href="/cooptube/v/${v.id}" style="text-decoration:none;color:inherit;display:block;flex:1;">
+          <div class="card-img-box" style="position:relative;">
+            <img src="${escapeHtml(thumb)}" alt="" style="width:100%;height:100%;object-fit:cover;">
+            <span style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,0.75);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;">▶ YouTube</span>
+          </div>
+          <div class="card-content" style="padding-bottom:8px;">
+            <div class="tags">
+              <span class="tag-category">${escapeHtml(v.categoria)}</span>
+              <span class="tag-id" style="background:#374151;color:#9ca3af;">#${v.id}</span>
+            </div>
+            <h3 style="color:white;margin:0 0 10px 0;">${escapeHtml(v.titulo)}</h3>
+            <p>${escapeHtml((v.descripcion || '').slice(0, 120))}</p>
+          </div>
+        </a>
+        <div class="card-footer" style="padding:12px 15px;margin:0;">
+          <span>por <a href="/user/${escapeHtml(v.autor)}" class="author">@${escapeHtml(v.autor)}</a></span>
+          <span style="color:#9ca3af;font-size:12px;">👁 ${v.vistas || 0}</span>
+        </div>
+      </div>`;
+    }).join('') || '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">No hay videos todavía. ¡Publicá el primero!</p>';
+
+    const pubBtn = sesion.name && !sesion.banneado
+      ? `<a href="/cooptube/publicar" class="btn-red">+ Publicar video</a>`
+      : `<a href="/login" class="btn-red">Entrar para publicar</a>`;
+
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>CoopTube | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;">
+          <div>
+            <h1 style="color:white;margin:0;">📺 CoopTube</h1>
+            <p style="color:#9ca3af;margin:6px 0 0 0;font-size:14px;">Videos de la comunidad SM64 Co-op · solo enlaces de YouTube</p>
+          </div>
+          ${pubBtn}
+        </div>
+        <form action="/cooptube" method="GET" class="filter-bar">
+          <input type="text" name="buscar" placeholder="Buscar video o ID..." value="${escapeHtml(req.query.buscar || '')}">
+          <select name="categoria">${catOpts}</select>
+          <button type="submit" class="btn-blue">Filtrar</button>
+        </form>
+        <div class="grid">${cards}</div>
+        ${renderPagination('/cooptube', pg.page, pg.totalPages, { buscar: req.query.buscar || '', categoria: cat === 'Todas' ? '' : cat })}
+      </div>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo cargar CoopTube. ¿Creaste la tabla videos en Supabase?', sesion, nNotif);
+  }
+});
+
+app.get('/cooptube/publicar', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  if (!sesion.name) return res.redirect('/login');
+  if (sesion.banneado) return pageError(res, 403, 'Cuenta baneada', 'No podés publicar.', sesion, nNotif);
+  const catOpts = COOPTUBE_CATS.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Publicar video | CoopTube</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="form-box">
+      <h2>📺 Publicar en CoopTube</h2>
+      <p style="color:#9ca3af;font-size:13px;">Solo se aceptan <b>enlaces de YouTube</b> (video o Short). El video se reproduce en la web.</p>
+      <form action="/cooptube/publicar" method="POST">
+        <label>Título</label>
+        <input type="text" name="titulo" required maxlength="120" placeholder="Ej: Cómo instalar un mod en Co-op DX">
+        <label>Enlace de YouTube</label>
+        <input type="url" name="url" required placeholder="https://www.youtube.com/watch?v=... o /shorts/...">
+        <label>Descripción</label>
+        <textarea name="descripcion" maxlength="2000" rows="4" placeholder="De qué trata el video..."></textarea>
+        <label>Categoría</label>
+        <select name="categoria">${catOpts}</select>
+        <label>ID de mod relacionado (opcional)</label>
+        <input type="number" name="mod_id" min="1" placeholder="Ej: 12">
+        <button type="submit" class="btn-red" style="width:100%;">Publicar video</button>
+      </form>
+      <p style="text-align:center;margin-top:14px;"><a href="/cooptube" class="btn-blue">Cancelar</a></p>
+    </div>
+  </body></html>`);
+});
+
+app.post('/cooptube/publicar', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  if (sesion.banneado) return pageError(res, 403, 'Cuenta baneada', 'No podés publicar.', sesion, 0);
+  if (!rateLimit('cooptube:' + sesion.name, 4000)) {
+    return pageError(res, 429, 'Demasiado rápido', 'Esperá un momento.', sesion, 0);
+  }
+  const titulo = cleanText(req.body.titulo || '').slice(0, 120);
+  const descripcion = cleanText(req.body.descripcion || '').slice(0, 2000);
+  const categoria = COOPTUBE_CATS.includes(req.body.categoria) ? req.body.categoria : 'Otros';
+  const ytId = extractYoutubeId(req.body.url || '');
+  let modId = parseInt(req.body.mod_id, 10);
+  if (!modId || modId < 1) modId = null;
+  if (titulo.length < 3) return pageError(res, 400, 'Título corto', 'Poné un título válido.', sesion, 0);
+  if (!ytId) return pageError(res, 400, 'Link inválido', 'Solo se aceptan enlaces de YouTube (watch, shorts, youtu.be).', sesion, 0);
+  try {
+    if (modId) {
+      const { data: mod } = await supabase.from('mods').select('id').eq('id', modId).single();
+      if (!mod) modId = null;
+    }
+    const { data: row, error } = await supabase.from('videos').insert({
+      titulo,
+      descripcion,
+      autor: sesion.name,
+      youtube_id: ytId,
+      categoria,
+      mod_id: modId,
+      vistas: 0
+    }).select('id').single();
+    if (error) throw error;
+    res.redirect('/cooptube/v/' + row.id);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo publicar. ¿Existe la tabla videos en Supabase?', sesion, 0);
+  }
+});
+
+app.get('/cooptube/v/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const id = parseInt(req.params.id, 10);
+  if (!id) return pageError(res, 404, 'No encontrado', 'Video inválido.', sesion, nNotif);
+  try {
+    const { data, error } = await supabase.from('videos').select('*').eq('id', id).single();
+    if (error || !data) return pageError(res, 404, 'No encontrado', 'Ese video no existe.', sesion, nNotif);
+    const v = mapVideo(data);
+    // vistas (best effort)
+    try {
+      await supabase.from('videos').update({ vistas: (v.vistas || 0) + 1 }).eq('id', id);
+      v.vistas = (v.vistas || 0) + 1;
+    } catch (e) {}
+    let modLink = '';
+    if (v.modId) {
+      const { data: mod } = await supabase.from('mods').select('id,titulo').eq('id', v.modId).single();
+      if (mod) {
+        modLink = `<p style="margin:12px 0;"><a href="/mod/${mod.id}" class="btn-blue">📦 Mod relacionado: ${escapeHtml(mod.titulo)}</a></p>`;
+      }
+    }
+    const del = (sesion.name === v.autor || sesion.esMod)
+      ? `<a href="/cooptube/borrar/${v.id}" class="btn-delete" onclick="return confirm('¿Borrar este video?');">Borrar</a>`
+      : '';
+    let fecha = '';
+    try {
+      const d = new Date(v.created_at);
+      if (!isNaN(d)) fecha = d.toLocaleDateString('es-AR');
+    } catch (e) {}
+    const embed = `https://www.youtube.com/embed/${encodeURIComponent(v.youtubeId)}?rel=0&modestbranding=1`;
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(v.titulo)} | CoopTube</title>${estilosCSS}
+    <style>
+      .ct-player {
+        position: relative; width: 100%; max-width: 960px; margin: 0 auto;
+        aspect-ratio: 16/9; background: #000; border-radius: 12px; overflow: hidden;
+        border: 1px solid #2d3139;
+      }
+      .ct-player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    </style>
+    </head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container" style="max-width:980px;">
+        <p style="margin:0 0 12px 0;"><a href="/cooptube" class="btn-blue">← CoopTube</a> ${del}</p>
+        <div class="ct-player">
+          <iframe src="${embed}" title="${escapeHtml(v.titulo)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe>
+        </div>
+        <h1 style="color:white;margin:16px 0 8px 0;">${escapeHtml(v.titulo)} <span style="color:#6b7280;font-size:0.5em;">#${v.id}</span></h1>
+        <div style="color:#9ca3af;font-size:13px;margin-bottom:12px;">
+          <span class="tag-category">${escapeHtml(v.categoria)}</span>
+          · por <a href="/user/${escapeHtml(v.autor)}" class="author">@${escapeHtml(v.autor)}</a>
+          · 👁 ${v.vistas || 0}
+          ${fecha ? ' · ' + escapeHtml(fecha) : ''}
+        </div>
+        ${modLink}
+        <div style="background:rgba(31,35,43,0.95);border:1px solid #2d3139;border-radius:12px;padding:16px;color:#e5e7eb;line-height:1.5;">
+          ${escapeHtml(v.descripcion || 'Sin descripción.').replace(/\\n/g, '<br>')}
+        </div>
+      </div>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo cargar el video.', sesion, nNotif);
+  }
+});
+
+app.get('/cooptube/borrar/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.redirect('/cooptube');
+  const { data } = await supabase.from('videos').select('autor').eq('id', id).single();
+  if (!data) return res.redirect('/cooptube');
+  if (data.autor !== sesion.name && !sesion.esMod) {
+    return pageError(res, 403, 'Sin permisos', 'No podés borrar este video.', sesion, 0);
+  }
+  await supabase.from('videos').delete().eq('id', id);
+  res.redirect('/cooptube');
 });
 
 
