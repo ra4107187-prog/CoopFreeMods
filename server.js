@@ -2513,8 +2513,8 @@ app.get('/cooptube', async (req, res) => {
       ? `<a href="/cooptube/publicar" class="btn-red">+ Publicar video</a>`
       : `<a href="/login" class="btn-red">Entrar para publicar</a>`;
 
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/cooptube-logo.png" type="image/png"><title>CoopTube | Coop Free Mods</title>${estilosCSS}</head><body class="cooptube-theme">
-      ${navbar(sesion, nNotif, '', { logo: '/public/cooptube-logo.png', logoHref: '/cooptube' })}
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>CoopTube | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;">
           <div>
@@ -2544,8 +2544,8 @@ app.get('/cooptube/publicar', async (req, res) => {
   if (!sesion.name) return res.redirect('/login');
   if (sesion.banneado) return pageError(res, 403, 'Cuenta baneada', 'No podés publicar.', sesion, nNotif);
   const catOpts = COOPTUBE_CATS.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/cooptube-logo.png" type="image/png"><title>Publicar video | CoopTube</title>${estilosCSS}</head><body class="cooptube-theme">
-    ${navbar(sesion, nNotif, '', { logo: '/public/cooptube-logo.png', logoHref: '/cooptube' })}
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Publicar video | CoopTube</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
     <div class="form-box">
       <h2>📺 Publicar en CoopTube</h2>
       <p style="color:#9ca3af;font-size:13px;">Solo se aceptan <b>enlaces de YouTube</b> (video o Short). El video se reproduce en la web.</p>
@@ -2724,7 +2724,7 @@ app.get('/cooptube/v/:id', async (req, res) => {
       commentForm = '<p style="color:#9ca3af;"><a href="/login" class="btn-blue">Entrar</a> para comentar.</p>';
     }
 
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/cooptube-logo.png" type="image/png"><title>${escapeHtml(v.titulo)} | CoopTube</title>${estilosCSS}
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(v.titulo)} | CoopTube</title>${estilosCSS}
     <style>
       .ct-layout { display: flex; gap: 20px; align-items: flex-start; max-width: 1100px; margin: 0 auto; }
       .ct-main { flex: 1; min-width: 0; max-width: 720px; }
@@ -2751,8 +2751,8 @@ app.get('/cooptube/v/:id', async (req, res) => {
         .ct-player { max-width: 100%; }
       }
     </style>
-    </head><body class="cooptube-theme">
-      ${navbar(sesion, nNotif, '', { logo: '/public/cooptube-logo.png', logoHref: '/cooptube' })}
+    </head><body>
+      ${navbar(sesion, nNotif)}
       <div class="main-container" style="max-width:1100px;">
         <div class="ct-layout">
           <div class="ct-main">
