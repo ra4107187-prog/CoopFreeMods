@@ -125,6 +125,7 @@ function mapVideo(row) {
     vistas: row.vistas || 0,
     likes: row.likes || 0,
     usuariosLike: normalizeStringArray(row.usuarios_like),
+    comentarios: Array.isArray(row.comentarios) ? row.comentarios : [],
     created_at: row.created_at
   };
 }
@@ -2556,6 +2557,8 @@ app.get('/cooptube/publicar', async (req, res) => {
         <select name="categoria">${catOpts}</select>
         <label>Enlace del mod (opcional)</label>
         <input type="url" name="mod_url" placeholder="https://coop-free-mods.vercel.app/mod/12">
+        <label>Miniatura (opcional, URL de imagen)</label>
+        <input type="url" name="thumbnail_url" placeholder="https://...jpg — si vacío, usa la de YouTube">
         <button type="submit" class="btn-red" style="width:100%;">Publicar video</button>
       </form>
       <p style="text-align:center;margin-top:14px;"><a href="/cooptube" class="btn-blue">Cancelar</a></p>
@@ -2591,7 +2594,8 @@ app.post('/cooptube/publicar', async (req, res) => {
       autor: sesion.name,
       youtube_id: ytId,
       categoria,
-      vistas: 0
+      vistas: 0,
+      comentarios: []
     };
     if (modUrl) payload.mod_url = modUrl;
     if (thumbUrl) payload.thumbnail_url = thumbUrl;
@@ -2687,6 +2691,36 @@ app.get('/cooptube/v/:id', async (req, res) => {
       </a>`;
     }).join('') || '<p style="color:#6b7280;font-size:13px;">No hay más videos.</p>';
 
+    const comentarios = Array.isArray(v.comentarios) ? v.comentarios : [];
+    const roots = comentarios.filter(c => !c.parentId);
+    let commentsHtml = roots.map(c => {
+      const replies = comentarios.filter(r => r.parentId === c.id);
+      const canDel = sesion.name && (sesion.name === c.usuario || sesion.esMod || sesion.name === v.autor);
+      const delC = canDel ? ' <a href="/cooptube/borrar-comentario/' + v.id + '/' + encodeURIComponent(c.id) + '" style="color:#f87171;font-size:11px;" onclick="return confirm(\'¿Borrar comentario?\')">Borrar</a>' : '';
+      let repHtml = replies.map(r => {
+        const canDelR = sesion.name && (sesion.name === r.usuario || sesion.esMod || sesion.name === v.autor);
+        const delR = canDelR ? ' <a href="/cooptube/borrar-comentario/' + v.id + '/' + encodeURIComponent(r.id) + '" style="color:#f87171;font-size:11px;" onclick="return confirm(\'¿Borrar?\')">Borrar</a>' : '';
+        return '<div class="comment-reply"><b><a href="/user/' + escapeHtml(r.usuario) + '" class="author">@' + escapeHtml(r.usuario) + '</a></b>' + delR + '<p style="margin:4px 0 0 0;color:#ced4da;">' + escapeHtml(r.texto || '') + '</p></div>';
+      }).join('');
+      let replyForm = '';
+      if (sesion.name && !sesion.banneado) {
+        replyForm = '<form action="/cooptube/responder/' + v.id + '/' + encodeURIComponent(c.id) + '" method="POST" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">' +
+          '<input type="text" name="texto" required minlength="2" maxlength="500" placeholder="Responder..." style="flex:1;min-width:140px;margin:0;">' +
+          '<button type="submit" class="btn-gray">Responder</button></form>';
+      }
+      return '<div class="comment-box"><b><a href="/user/' + escapeHtml(c.usuario) + '" class="author">@' + escapeHtml(c.usuario) + '</a></b>' + delC +
+        '<p style="margin:6px 0 0 0;color:#e5e7eb;">' + escapeHtml(c.texto || '') + '</p>' + repHtml + replyForm + '</div>';
+    }).join('') || '<p style="color:#9ca3af;">Sé el primero en comentar.</p>';
+
+    let commentForm = '';
+    if (sesion.name && !sesion.banneado) {
+      commentForm = '<form action="/cooptube/comentario/' + v.id + '" method="POST" style="margin-bottom:16px;">' +
+        '<textarea name="texto" required minlength="2" maxlength="1000" rows="3" placeholder="Escribí un comentario..." style="margin-bottom:10px;"></textarea>' +
+        '<button type="submit" class="btn-red">Comentar</button></form>';
+    } else if (!sesion.name) {
+      commentForm = '<p style="color:#9ca3af;"><a href="/login" class="btn-blue">Entrar</a> para comentar.</p>';
+    }
+
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(v.titulo)} | CoopTube</title>${estilosCSS}
     <style>
       .ct-layout { display: flex; gap: 20px; align-items: flex-start; max-width: 1100px; margin: 0 auto; }
@@ -2738,6 +2772,11 @@ app.get('/cooptube/v/:id', async (req, res) => {
             ${modLink}
             <div style="background:rgba(31,35,43,0.95);border:1px solid #2d3139;border-radius:12px;padding:16px;color:#e5e7eb;line-height:1.5;">
               ${escapeHtml(v.descripcion || 'Sin descripción.').replace(/\n/g, '<br>')}
+            </div>
+            <div style="margin-top:22px;">
+              <h2 style="color:white;font-size:1.1rem;margin:0 0 12px 0;">💬 Comentarios (${comentarios.length})</h2>
+              ${commentForm}
+              ${commentsHtml}
             </div>
             ${del ? `<div style="margin-top:16px;">${del}</div>` : ''}
           </div>
@@ -2796,6 +2835,88 @@ app.get('/like-video/:id', async (req, res) => {
     const { error: upErr } = await supabase.from('videos').update({ likes, usuarios_like: usuariosLike }).eq('id', id);
     if (upErr) console.error('like-video update', upErr);
   } catch (e) { console.error('like-video', e); }
+  res.redirect('/cooptube/v/' + id);
+});
+
+
+app.post('/cooptube/comentario/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.redirect('/cooptube');
+  if (!rateLimit('vcom:' + sesion.name + ':' + id, 2000)) return res.redirect('/cooptube/v/' + id);
+  const texto = cleanText(req.body.texto || '').slice(0, 1000);
+  if (texto.length < 2) return res.redirect('/cooptube/v/' + id);
+  try {
+    const { data } = await supabase.from('videos').select('*').eq('id', id).single();
+    if (!data) return res.redirect('/cooptube');
+    const comentarios = Array.isArray(data.comentarios) ? data.comentarios.slice() : [];
+    comentarios.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      usuario: sesion.name,
+      texto,
+      parentId: null,
+      fecha: new Date().toISOString()
+    });
+    const { error } = await supabase.from('videos').update({ comentarios }).eq('id', id);
+    if (error) console.error('vcom', error);
+    if (data.autor !== sesion.name) {
+      await crearNotif(data.autor, 'comentario', `@${sesion.name} comentó en tu video "${data.titulo}"`, `/cooptube/v/${id}`);
+    }
+  } catch (e) { console.error(e); }
+  res.redirect('/cooptube/v/' + id);
+});
+
+app.post('/cooptube/responder/:id/:parentId', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  const parentId = req.params.parentId;
+  if (!id) return res.redirect('/cooptube');
+  if (!rateLimit('vrep:' + sesion.name + ':' + id, 2000)) return res.redirect('/cooptube/v/' + id);
+  const texto = cleanText(req.body.texto || '').slice(0, 500);
+  if (texto.length < 2) return res.redirect('/cooptube/v/' + id);
+  try {
+    const { data } = await supabase.from('videos').select('*').eq('id', id).single();
+    if (!data) return res.redirect('/cooptube');
+    const comentarios = Array.isArray(data.comentarios) ? data.comentarios.slice() : [];
+    const parent = comentarios.find(c => c.id === parentId);
+    comentarios.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      usuario: sesion.name,
+      texto,
+      parentId,
+      fecha: new Date().toISOString()
+    });
+    await supabase.from('videos').update({ comentarios }).eq('id', id);
+    if (parent && parent.usuario !== sesion.name) {
+      await crearNotif(parent.usuario, 'respuesta', `@${sesion.name} respondió tu comentario en un video`, `/cooptube/v/${id}`);
+    }
+    if (data.autor !== sesion.name) {
+      await crearNotif(data.autor, 'comentario', `@${sesion.name} respondió en tu video "${data.titulo}"`, `/cooptube/v/${id}`);
+    }
+  } catch (e) { console.error(e); }
+  res.redirect('/cooptube/v/' + id);
+});
+
+app.get('/cooptube/borrar-comentario/:id/:cid', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  const cid = req.params.cid;
+  if (!id) return res.redirect('/cooptube');
+  try {
+    const { data } = await supabase.from('videos').select('*').eq('id', id).single();
+    if (!data) return res.redirect('/cooptube');
+    let comentarios = Array.isArray(data.comentarios) ? data.comentarios.slice() : [];
+    const c = comentarios.find(x => x.id === cid);
+    if (!c) return res.redirect('/cooptube/v/' + id);
+    if (c.usuario !== sesion.name && !sesion.esMod && data.autor !== sesion.name) {
+      return pageError(res, 403, 'Sin permisos', 'No podés borrar este comentario.', sesion, 0);
+    }
+    comentarios = comentarios.filter(x => x.id !== cid && x.parentId !== cid);
+    await supabase.from('videos').update({ comentarios }).eq('id', id);
+  } catch (e) { console.error(e); }
   res.redirect('/cooptube/v/' + id);
 });
 
