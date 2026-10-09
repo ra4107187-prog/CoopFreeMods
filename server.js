@@ -2587,23 +2587,46 @@ app.post('/cooptube/publicar', async (req, res) => {
   if (titulo.length < 3) return pageError(res, 400, 'Título corto', 'Poné un título válido.', sesion, 0);
   if (!ytId) return pageError(res, 400, 'Link inválido', 'Solo se aceptan enlaces de YouTube (watch, shorts, youtu.be).', sesion, 0);
   try {
-    const { data: row, error } = await supabase.from('videos').insert({
+    const payload = {
       titulo,
       descripcion,
       autor: sesion.name,
       youtube_id: ytId,
       categoria,
-      mod_url: modUrl,
-      thumbnail_url: thumbUrl,
-      vistas: 0,
-      likes: 0,
-      usuarios_like: []
-    }).select('id').single();
-    if (error) throw error;
+      vistas: 0
+    };
+    if (modUrl) payload.mod_url = modUrl;
+    if (thumbUrl) payload.thumbnail_url = thumbUrl;
+    // likes opcionales (si las columnas existen)
+    payload.likes = 0;
+    payload.usuarios_like = [];
+
+    let { data: row, error } = await supabase.from('videos').insert(payload).select('id').single();
+    // Si falla por columnas nuevas, reintentar solo con lo básico
+    if (error) {
+      console.error('videos insert full', error);
+      const basic = {
+        titulo,
+        descripcion,
+        autor: sesion.name,
+        youtube_id: ytId,
+        categoria,
+        vistas: 0
+      };
+      const retry = await supabase.from('videos').insert(basic).select('id').single();
+      row = retry.data;
+      error = retry.error;
+    }
+    if (error) {
+      console.error('videos insert', error);
+      return pageError(res, 500, 'Error al publicar',
+        'Supabase: ' + escapeHtml(error.message || error.code || 'error desconocido') +
+        '. Ejecutá el SQL de CoopTube en Supabase (tabla videos).', sesion, 0);
+    }
     res.redirect('/cooptube/v/' + row.id);
   } catch (e) {
     console.error(e);
-    pageError(res, 500, 'Error', 'No se pudo publicar. ¿Existe la tabla videos en Supabase?', sesion, 0);
+    pageError(res, 500, 'Error', 'No se pudo publicar: ' + escapeHtml(e.message || 'error'), sesion, 0);
   }
 });
 
