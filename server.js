@@ -120,10 +120,26 @@ function mapVideo(row) {
     autor: row.autor,
     youtubeId: row.youtube_id,
     categoria: row.categoria || 'Otros',
-    modId: row.mod_id || null,
+    modUrl: row.mod_url || null,
+    thumbnail: row.thumbnail_url || null,
     vistas: row.vistas || 0,
     created_at: row.created_at
   };
+}
+function isAllowedImageUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    return true;
+  } catch (e) { return false; }
+}
+function isAllowedModPageUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    // prefer our site /mod/ID but allow any https link to a mod page
+    return true;
+  } catch (e) { return false; }
 }
 
 function isAllowedModLink(url) {
@@ -285,7 +301,9 @@ function navbar(sesion, nNotif, extra) {
       window.addEventListener('pagehide', saveTime);
       window.addEventListener('beforeunload', saveTime);
 
-      if (m) {
+      // En CoopTube (página de video) siempre silenciar fondo
+      var onVideo = location.pathname.indexOf("/cooptube/v/") === 0;
+      if (m && !onVideo) {
         seekSaved();
         var pr = audio.play();
         if (pr && pr.catch) pr.catch(function(){});
@@ -307,7 +325,7 @@ function renderModCards(mods, sesion) {
       <a href="/mod/${mod.id}" style="text-decoration:none;color:inherit;display:block;flex:1;">
         <div class="card-img-box">${img}</div>
         <div class="card-content" style="padding-bottom:8px;">
-          <div class="tags"><span class="tag-version">${escapeHtml(mod.version)}</span><span class="tag-category">${escapeHtml(mod.categoria)}</span><span class="tag-id" style="background:#374151;color:#9ca3af;">#${mod.id}</span></div>
+          <div class="tags"><span class="tag-version">${escapeHtml(mod.version)}</span><span class="tag-category">${escapeHtml(mod.categoria)}</span></div>
           <h3 style="color:white;margin:0 0 10px 0;">${escapeHtml(mod.titulo)}</h3>
           <p>${escapeHtml(mod.descripcion)}</p>
         </div>
@@ -672,7 +690,7 @@ app.get('/mod/:id', async (req, res) => {
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
-          <div><h1 style="color:white;">${escapeHtml(mod.titulo)} <span style="color:#6b7280;font-size:0.55em;font-weight:600;">#${mod.id}</span></h1>
+          <div><h1 style="color:white;">${escapeHtml(mod.titulo)}</h1>
             <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></p></div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
@@ -766,6 +784,11 @@ app.get('/user/:username', async (req, res) => {
     const user = userRow ? mapUser(userRow) : { usuario: username, descripcion: 'Usuario', fechaRegistro: '—', seguidores: [], banneado: false };
     const { data: modsData } = await supabase.from('mods').select('*').eq('autor', username).order('id', { ascending: false });
     const userMods = (modsData || []).map(mapMod);
+    let userVideos = [];
+    try {
+      const { data: vids } = await supabase.from('videos').select('*').eq('autor', username).order('created_at', { ascending: false }).limit(30);
+      userVideos = (vids || []).map(mapVideo).filter(Boolean);
+    } catch (e) {}
     let bFollow = '';
     if (sesion.name && sesion.name !== user.usuario) {
       const ya = (user.seguidores || []).includes(sesion.name);
@@ -792,6 +815,14 @@ app.get('/user/:username', async (req, res) => {
         </div>
         <h2>📦 Mods de este usuario</h2>
         <div class="grid">${renderModCards(userMods, sesion)}</div>
+        <h2 style="margin-top:28px;">📺 Videos en CoopTube</h2>
+        <div class="grid">${userVideos.length ? userVideos.map(v => {
+          const thumb = v.thumbnail || youtubeThumb(v.youtubeId);
+          return `<div class="card"><a href="/cooptube/v/${v.id}" style="text-decoration:none;color:inherit;display:block;">
+            <div class="card-img-box"><img src="${escapeHtml(thumb)}" style="width:100%;height:100%;object-fit:cover;"></div>
+            <div class="card-content"><h3 style="color:white;margin:0;">${escapeHtml(v.titulo)}</h3>
+            <p style="color:#9ca3af;font-size:12px;">👁 ${v.vistas||0} · ${escapeHtml(v.categoria)}</p></div></a></div>`;
+        }).join('') : '<p style="color:#9ca3af;">Este usuario aún no publicó videos.</p>'}</div>
       </div>
     </body></html>`);
   } catch (e) { console.error(e); pageError(res, 500, 'Error', 'No se pudo cargar la página.', sesion, nNotif); }
@@ -1305,7 +1336,7 @@ app.get('/foros', async (req, res) => {
       return `<a href="/foros/tema/${tm.id}" style="display:block;text-decoration:none;color:inherit;">
         <div class="comment-box" style="display:flex;justify-content:space-between;align-items:center;gap:12px;transition:transform 0.15s;">
           <div style="flex:1;min-width:0;">
-            <div style="font-weight:bold;color:white;margin-bottom:4px;">${pin}${closed}${escapeHtml(tm.titulo)} <span style="color:#6b7280;font-weight:normal;font-size:12px;">#${tm.id}</span></div>
+            <div style="font-weight:bold;color:white;margin-bottom:4px;">${pin}${closed}${escapeHtml(tm.titulo)}</div>
             <div style="font-size:12px;color:#9ca3af;">
               <span class="tag-category">${escapeHtml(tm.categoria)}</span>
               · por <span class="author">@${escapeHtml(tm.autor)}</span>
@@ -2158,7 +2189,7 @@ app.get('/usuarios', async (req, res) => {
       } catch (e) {}
       return `<a href="/user/${escapeHtml(u.usuario)}" class="user-row">
         <div class="user-row-main">
-          <span class="user-row-name">@${escapeHtml(u.usuario)}${modB}${ban} <span style="color:#6b7280;font-weight:500;font-size:12px;">#${u.id != null ? u.id : ''}</span></span>
+          <span class="user-row-name">@${escapeHtml(u.usuario)}${modB}${ban}</span>
           ${desc ? `<span class="user-row-desc">${desc}</span>` : ''}
         </div>
         <div class="user-row-meta">
@@ -2384,7 +2415,7 @@ app.get('/cooptube', async (req, res) => {
       `<option value="${escapeHtml(c)}" ${cat===c?'selected':''}>${escapeHtml(c)}</option>`
     ).join('');
     const cards = pg.slice.map(v => {
-      const thumb = youtubeThumb(v.youtubeId);
+      const thumb = v.thumbnail || youtubeThumb(v.youtubeId);
       return `<div class="card" style="position:relative;">
         <a href="/cooptube/v/${v.id}" style="text-decoration:none;color:inherit;display:block;flex:1;">
           <div class="card-img-box" style="position:relative;">
@@ -2394,7 +2425,6 @@ app.get('/cooptube', async (req, res) => {
           <div class="card-content" style="padding-bottom:8px;">
             <div class="tags">
               <span class="tag-category">${escapeHtml(v.categoria)}</span>
-              <span class="tag-id" style="background:#374151;color:#9ca3af;">#${v.id}</span>
             </div>
             <h3 style="color:white;margin:0 0 10px 0;">${escapeHtml(v.titulo)}</h3>
             <p>${escapeHtml((v.descripcion || '').slice(0, 120))}</p>
@@ -2456,8 +2486,10 @@ app.get('/cooptube/publicar', async (req, res) => {
         <textarea name="descripcion" maxlength="2000" rows="4" placeholder="De qué trata el video..."></textarea>
         <label>Categoría</label>
         <select name="categoria">${catOpts}</select>
-        <label>ID de mod relacionado (opcional)</label>
-        <input type="number" name="mod_id" min="1" placeholder="Ej: 12">
+        <label>Enlace del mod (opcional)</label>
+        <input type="url" name="mod_url" placeholder="https://coop-free-mods.vercel.app/mod/12">
+        <label>Miniatura (opcional, URL de imagen)</label>
+        <input type="url" name="thumbnail_url" placeholder="https://...jpg — si vacío, usa la de YouTube">
         <button type="submit" class="btn-red" style="width:100%;">Publicar video</button>
       </form>
       <p style="text-align:center;margin-top:14px;"><a href="/cooptube" class="btn-blue">Cancelar</a></p>
@@ -2476,22 +2508,25 @@ app.post('/cooptube/publicar', async (req, res) => {
   const descripcion = cleanText(req.body.descripcion || '').slice(0, 2000);
   const categoria = COOPTUBE_CATS.includes(req.body.categoria) ? req.body.categoria : 'Otros';
   const ytId = extractYoutubeId(req.body.url || '');
-  let modId = parseInt(req.body.mod_id, 10);
-  if (!modId || modId < 1) modId = null;
+  let modUrl = String(req.body.mod_url || '').trim();
+  if (modUrl && !isAllowedModPageUrl(modUrl)) modUrl = '';
+  if (!modUrl) modUrl = null;
+  let thumbUrl = String(req.body.thumbnail_url || '').trim();
+  if (thumbUrl && !isAllowedImageUrl(thumbUrl)) {
+    return pageError(res, 400, 'Miniatura inválida', 'La miniatura debe ser una URL http/https de imagen.', sesion, 0);
+  }
+  if (!thumbUrl) thumbUrl = null;
   if (titulo.length < 3) return pageError(res, 400, 'Título corto', 'Poné un título válido.', sesion, 0);
   if (!ytId) return pageError(res, 400, 'Link inválido', 'Solo se aceptan enlaces de YouTube (watch, shorts, youtu.be).', sesion, 0);
   try {
-    if (modId) {
-      const { data: mod } = await supabase.from('mods').select('id').eq('id', modId).single();
-      if (!mod) modId = null;
-    }
     const { data: row, error } = await supabase.from('videos').insert({
       titulo,
       descripcion,
       autor: sesion.name,
       youtube_id: ytId,
       categoria,
-      mod_id: modId,
+      mod_url: modUrl,
+      thumbnail_url: thumbUrl,
       vistas: 0
     }).select('id').single();
     if (error) throw error;
@@ -2511,55 +2546,106 @@ app.get('/cooptube/v/:id', async (req, res) => {
     const { data, error } = await supabase.from('videos').select('*').eq('id', id).single();
     if (error || !data) return pageError(res, 404, 'No encontrado', 'Ese video no existe.', sesion, nNotif);
     const v = mapVideo(data);
-    // vistas (best effort)
     try {
       await supabase.from('videos').update({ vistas: (v.vistas || 0) + 1 }).eq('id', id);
       v.vistas = (v.vistas || 0) + 1;
     } catch (e) {}
+
+    const { data: moreData } = await supabase.from('videos').select('*').neq('id', id).order('created_at', { ascending: false }).limit(12);
+    const more = (moreData || []).map(mapVideo).filter(Boolean);
+
     let modLink = '';
-    if (v.modId) {
-      const { data: mod } = await supabase.from('mods').select('id,titulo').eq('id', v.modId).single();
-      if (mod) {
-        modLink = `<p style="margin:12px 0;"><a href="/mod/${mod.id}" class="btn-blue">📦 Mod relacionado: ${escapeHtml(mod.titulo)}</a></p>`;
-      }
+    if (v.modUrl) {
+      modLink = `<p style="margin:12px 0;"><a href="${escapeHtml(v.modUrl)}" class="btn-blue" rel="noopener">📦 Ver mod relacionado</a></p>`;
     }
     const del = (sesion.name === v.autor || sesion.esMod)
-      ? `<a href="/cooptube/borrar/${v.id}" class="btn-delete" onclick="return confirm('¿Borrar este video?');">Borrar</a>`
+      ? `<a href="/cooptube/borrar/${v.id}" class="btn-delete" onclick="return confirm('¿Borrar este video?');">Borrar video</a>`
       : '';
     let fecha = '';
     try {
       const d = new Date(v.created_at);
       if (!isNaN(d)) fecha = d.toLocaleDateString('es-AR');
     } catch (e) {}
-    const embed = `https://www.youtube.com/embed/${encodeURIComponent(v.youtubeId)}?rel=0&modestbranding=1`;
+    const embed = 'https://www.youtube.com/embed/' + encodeURIComponent(v.youtubeId) + '?rel=0&modestbranding=1';
+    const side = more.map(m => {
+      const th = m.thumbnail || youtubeThumb(m.youtubeId);
+      return `<a href="/cooptube/v/${m.id}" class="ct-side-item">
+        <img src="${escapeHtml(th)}" alt="">
+        <div>
+          <div class="ct-side-title">${escapeHtml(m.titulo)}</div>
+          <div class="ct-side-meta">@${escapeHtml(m.autor)} · 👁 ${m.vistas || 0}</div>
+        </div>
+      </a>`;
+    }).join('') || '<p style="color:#6b7280;font-size:13px;">No hay más videos.</p>';
+
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(v.titulo)} | CoopTube</title>${estilosCSS}
     <style>
+      .ct-layout { display: flex; gap: 20px; align-items: flex-start; max-width: 1100px; margin: 0 auto; }
+      .ct-main { flex: 1; min-width: 0; max-width: 720px; }
+      .ct-side { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
       .ct-player {
-        position: relative; width: 100%; max-width: 960px; margin: 0 auto;
-        aspect-ratio: 16/9; background: #000; border-radius: 12px; overflow: hidden;
+        position: relative; width: 100%; max-width: 640px;
+        aspect-ratio: 16/9; background: #000; border-radius: 10px; overflow: hidden;
         border: 1px solid #2d3139;
       }
       .ct-player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+      .ct-side-item {
+        display: flex; gap: 10px; text-decoration: none; color: inherit;
+        background: rgba(31,35,43,0.95); border: 1px solid #2d3139; border-radius: 10px;
+        padding: 8px; transition: border-color 0.15s;
+      }
+      .ct-side-item:hover { border-color: #e11d48; }
+      .ct-side-item img { width: 120px; height: 68px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: #111; }
+      .ct-side-title { color: #fff; font-size: 13px; font-weight: 700; line-height: 1.3; margin-bottom: 4px; }
+      .ct-side-meta { color: #9ca3af; font-size: 11px; }
+      @media (max-width: 900px) {
+        .ct-layout { flex-direction: column; }
+        .ct-side { width: 100%; }
+        .ct-main { max-width: 100%; }
+        .ct-player { max-width: 100%; }
+      }
     </style>
     </head><body>
       ${navbar(sesion, nNotif)}
-      <div class="main-container" style="max-width:980px;">
-        <p style="margin:0 0 12px 0;"><a href="/cooptube" class="btn-blue">← CoopTube</a> ${del}</p>
-        <div class="ct-player">
-          <iframe src="${embed}" title="${escapeHtml(v.titulo)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe>
-        </div>
-        <h1 style="color:white;margin:16px 0 8px 0;">${escapeHtml(v.titulo)} <span style="color:#6b7280;font-size:0.5em;">#${v.id}</span></h1>
-        <div style="color:#9ca3af;font-size:13px;margin-bottom:12px;">
-          <span class="tag-category">${escapeHtml(v.categoria)}</span>
-          · por <a href="/user/${escapeHtml(v.autor)}" class="author">@${escapeHtml(v.autor)}</a>
-          · 👁 ${v.vistas || 0}
-          ${fecha ? ' · ' + escapeHtml(fecha) : ''}
-        </div>
-        ${modLink}
-        <div style="background:rgba(31,35,43,0.95);border:1px solid #2d3139;border-radius:12px;padding:16px;color:#e5e7eb;line-height:1.5;">
-          ${escapeHtml(v.descripcion || 'Sin descripción.').replace(/\\n/g, '<br>')}
+      <div class="main-container" style="max-width:1100px;">
+        <div class="ct-layout">
+          <div class="ct-main">
+            <div class="ct-player">
+              <iframe src="${embed}" title="${escapeHtml(v.titulo)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe>
+            </div>
+            <h1 style="color:white;margin:14px 0 8px 0;font-size:1.25rem;">${escapeHtml(v.titulo)}</h1>
+            <div style="color:#9ca3af;font-size:13px;margin-bottom:12px;">
+              <span class="tag-category">${escapeHtml(v.categoria)}</span>
+              · por <a href="/user/${escapeHtml(v.autor)}" class="author">@${escapeHtml(v.autor)}</a>
+              · 👁 ${v.vistas || 0}
+              ${fecha ? ' · ' + escapeHtml(fecha) : ''}
+            </div>
+            ${modLink}
+            <div style="background:rgba(31,35,43,0.95);border:1px solid #2d3139;border-radius:12px;padding:16px;color:#e5e7eb;line-height:1.5;">
+              ${escapeHtml(v.descripcion || 'Sin descripción.').replace(/\n/g, '<br>')}
+            </div>
+            ${del ? `<div style="margin-top:16px;">${del}</div>` : ''}
+          </div>
+          <aside class="ct-side">
+            <div style="color:#fff;font-weight:800;font-size:14px;margin-bottom:4px;">Más videos</div>
+            ${side}
+          </aside>
         </div>
       </div>
+      <script>
+      (function(){
+        function stopMusic() {
+          try {
+            var a = document.getElementById('cfm-bg-music');
+            if (a) a.pause();
+          } catch (e) {}
+        }
+        stopMusic();
+        setTimeout(stopMusic, 300);
+        setTimeout(stopMusic, 1000);
+        setTimeout(stopMusic, 2000);
+      })();
+      </script>
     </body></html>`);
   } catch (e) {
     console.error(e);
@@ -2567,7 +2653,8 @@ app.get('/cooptube/v/:id', async (req, res) => {
   }
 });
 
-app.get('/cooptube/borrar/:id', async (req, res) => {
+app.get('/cooptube/borrar/:id'
+, async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name) return res.redirect('/login');
   const id = parseInt(req.params.id, 10);
