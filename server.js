@@ -2556,7 +2556,6 @@ app.get('/cooptube/publicar', async (req, res) => {
         <select name="categoria">${catOpts}</select>
         <label>Enlace del mod (opcional)</label>
         <input type="url" name="mod_url" placeholder="https://coop-free-mods.vercel.app/mod/12">
-        <input type="url" name="thumbnail_url" placeholder="https://...jpg — si vacío, usa la de YouTube">
         <button type="submit" class="btn-red" style="width:100%;">Publicar video</button>
       </form>
       <p style="text-align:center;margin-top:14px;"><a href="/cooptube" class="btn-blue">Cancelar</a></p>
