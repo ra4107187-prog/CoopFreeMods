@@ -164,6 +164,101 @@ function isAllowedModPageUrl(url) {
   } catch (e) { return false; }
 }
 
+
+/** Extensiones peligrosas / no válidas en un mod de SM64 Co-op */
+const DANGEROUS_EXT = new Set([
+  '.exe', '.bat', '.cmd', '.com', '.msi', '.msp', '.mst', '.scr', '.pif', '.cpl',
+  '.dll', '.sys', '.drv', '.ocx', '.efi',
+  '.ps1', '.psm1', '.psd1', '.vbs', '.vbe', '.wsf', '.wsh', '.js', '.jse', '.hta',
+  '.reg', '.inf', '.lnk', '.url', '.scf', '.shs', '.application', '.gadget',
+  '.jar', '.jnlp', '.class',
+  '.sh', '.bash', '.zsh', '.csh', '.ksh', '.run', '.out',
+  '.app', '.dmg', '.pkg', '.deb', '.rpm', '.apk', '.ipa', '.xap',
+  '.iso', '.img', '.vhd', '.vhdx',
+  '.docm', '.xlsm', '.pptm',
+  '.php', '.asp', '.aspx', '.jsp', '.cgi'
+]);
+
+function listZipEntryNames(buf) {
+  const names = [];
+  if (!buf || buf.length < 30) return names;
+  try {
+    let i = 0;
+    const len = buf.length;
+    let guard = 0;
+    while (i < len - 30 && guard < 5000) {
+      guard++;
+      if (buf[i] === 0x50 && buf[i + 1] === 0x4b && buf[i + 2] === 0x03 && buf[i + 3] === 0x04) {
+        const compSize = buf.readUInt32LE(i + 18);
+        const nameLen = buf.readUInt16LE(i + 26);
+        const extraLen = buf.readUInt16LE(i + 28);
+        if (nameLen > 0 && i + 30 + nameLen <= len) {
+          const name = buf.slice(i + 30, i + 30 + nameLen).toString('utf8').replace(/\\/g, '/');
+          if (name && !name.endsWith('/')) names.push(name);
+        }
+        const next = i + 30 + nameLen + extraLen + (compSize || 0);
+        i = next > i ? next : i + 1;
+      } else {
+        i++;
+      }
+    }
+  } catch (e) {
+    console.error('zip scan', e);
+  }
+  return names;
+}
+
+function extOfPath(filePath) {
+  const base = String(filePath || '').split('/').pop() || '';
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return '';
+  return base.slice(dot).toLowerCase();
+}
+
+/**
+ * Revisa un archivo de mod subido.
+ * @returns {{ ok: boolean, blocked: string[], warning?: string }}
+ */
+function scanModArchive(buffer, originalName) {
+  const blocked = [];
+  const name = String(originalName || '').toLowerCase();
+  const topExt = path.extname(name).toLowerCase();
+
+  if (topExt === '.exe' || topExt === '.bat' || topExt === '.cmd' || DANGEROUS_EXT.has(topExt)) {
+    blocked.push(originalName || name);
+    return { ok: false, blocked };
+  }
+
+  if (topExt === '.lua') return { ok: true, blocked: [] };
+
+  if (topExt === '.zip' || (buffer && buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b)) {
+    const entries = listZipEntryNames(buffer);
+    if (!entries.length) {
+      return { ok: true, blocked: [], warning: 'No se pudieron listar archivos del ZIP; se publicó igual. Preferí ZIPs estándar.' };
+    }
+    for (const entry of entries) {
+      const ext = extOfPath(entry);
+      if (DANGEROUS_EXT.has(ext)) blocked.push(entry);
+      const lower = entry.toLowerCase();
+      if (/\.(exe|bat|cmd|scr|ps1|vbs|dll|msi)(\.|$)/i.test(lower) && !blocked.includes(entry)) {
+        blocked.push(entry);
+      }
+    }
+    if (blocked.length) return { ok: false, blocked };
+    return { ok: true, blocked: [] };
+  }
+
+  if (topExt === '.7z' || topExt === '.rar') {
+    return {
+      ok: true,
+      blocked: [],
+      warning: 'Los archivos .7z/.rar no se escanean por dentro. Preferí .zip para pasar el control de seguridad.'
+    };
+  }
+
+  return { ok: true, blocked: [] };
+}
+
 function isAllowedModLink(url) {
   try {
     const u = new URL(url);
@@ -1006,7 +1101,7 @@ app.get('/publish', async (req, res) => {
         <input type="file" name="archivoMod">
         <label>Link de descarga externo (opcional):</label>
         <input type="url" name="linkExterno" placeholder="https://drive.google.com/... o mediafire / mega">
-        <p style="color:#9ca3af;font-size:12px;margin:-8px 0 12px;">Link opcional solo de Google Drive, MediaFire o MEGA. Hace falta archivo o link. Capturas: PNG, JPG, WebP o GIF.</p>
+        <p style="color:#9ca3af;font-size:12px;margin:-8px 0 12px;">Link opcional solo de Google Drive, MediaFire o MEGA. Hace falta archivo o link. Capturas: PNG, JPG, WebP o GIF. Los ZIP se escanean: no se permiten .exe, .bat, .dll ni otros ejecutables.</p>
         <label>Capturas (hasta 4, PNG/JPG/WebP/GIF):</label>
         <input type="file" name="imagenesMod" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif" multiple>
         <button type="submit" class="btn-red" style="width:100%;">Publicar</button>
@@ -1027,6 +1122,18 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
     }
     if (linkExterno && !isAllowedModLink(linkExterno)) {
       return pageError(res, 400, 'Link no permitido', 'Solo se aceptan links de Google Drive, MediaFire o MEGA.', sesion, 0);
+    }
+    // Seguridad: escanear ZIP por ejecutables y archivos peligrosos
+    if (arc && arc.buffer) {
+      const scan = scanModArchive(arc.buffer, arc.originalname);
+      if (!scan.ok) {
+        const lista = scan.blocked.slice(0, 12).map(f => escapeHtml(f)).join('<br>');
+        return pageError(res, 400, 'Archivo bloqueado por seguridad',
+          'El mod contiene archivos no permitidos en SM64 Co-op (ejecutables u otros peligrosos):<br><br>' + lista +
+          (scan.blocked.length > 12 ? '<br>…' : '') +
+          '<br><br>Sacá .exe, .bat, .dll, scripts del sistema, etc. y subí solo el contenido del mod (.lua, texturas, etc.).',
+          sesion, 0);
+      }
     }
     const ts = Date.now();
     let filePath = '';
@@ -1092,6 +1199,15 @@ app.post('/edit-mod/:id', upload.fields([{ name: 'archivoMod', maxCount: 1 }]), 
   const update = { titulo: req.body.titulo, descripcion: req.body.descripcion };
   if (req.files['archivoMod'] && req.files['archivoMod'][0]) {
     const file = req.files['archivoMod'][0];
+    const scan = scanModArchive(file.buffer, file.originalname);
+    if (!scan.ok) {
+      const lista = scan.blocked.slice(0, 12).map(f => escapeHtml(f)).join('<br>');
+      return pageError(res, 400, 'Archivo bloqueado por seguridad',
+        'El archivo contiene elementos no permitidos:<br><br>' + lista +
+        '<br><br>Eliminá ejecutables (.exe, .bat, .dll, etc.) y subí solo el mod.',
+        sesion, 0);
+    }
+
     const filePath = `${sesion.name}/${Date.now()}-${file.originalname}`;
     await uploadToStorage('mods-files', filePath, file.buffer, file.mimetype || 'application/octet-stream');
     update.nombre_archivo_real = file.originalname;
