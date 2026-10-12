@@ -485,7 +485,7 @@ app.get('/', async (req, res) => {
           <div class="home-main">
             <div class="home-hero">
               <h1>Bienvenido a <span class="home-accent">Coop Free Mods</span></h1>
-              <p class="home-lead">La biblioteca comunitaria de mods gratis para <b>SM64 Co-op DX</b>, <b>SM64 EX Co-op</b> y <b>DX + EX</b>. Descargá, publicá y compartí personajes, dynos, hangouts, gamemodes y más.</p>
+              <p class="home-lead">La biblioteca comunitaria hispana de mods gratis para <b>SM64 Co-op DX</b>, <b>SM64 EX Co-op</b> y <b>DX + EX</b>. Descargá, publicá y compartí personajes, dynos, hangouts, gamemodes y más.</p>
               <p class="home-lead" style="font-size:14px;color:#9ca3af;">Proyecto iniciado por @Ellos (them) y continuado por @SuperAaron64. Los mods se guardan en la nube y no se pierden al reiniciar.</p>
             </div>
             <div class="home-section">
@@ -1832,7 +1832,7 @@ app.get('/config', async (req, res) => {
         <label class="config-row">
           <span>
             <b style="color:white;">Cursor SM64</b><br>
-            <span style="color:#9ca3af;font-size:13px;">Cambia el cursor por uno estilo Super Mario 64 (la punta del PNG debe estar arriba a la izquierda).</span>
+            <span style="color:#9ca3af;font-size:13px;">Cambia el cursor por uno estilo Super Mario 64.</span>
           </span>
           <input type="checkbox" id="optCursor" style="width:auto;transform:scale(1.3);">
         </label>
@@ -1861,7 +1861,6 @@ app.get('/config', async (req, res) => {
           <input type="checkbox" id="optClick" style="width:auto;transform:scale(1.3);">
         </label>
 
-        <p style="color:#6b7280;font-size:12px;margin-top:20px;">Si la música no suena, el navegador bloqueó el autoplay: activá la opción y hacé un clic en la página. Archivos opcionales: <code>public/cursor.png</code>, <code>public/bg-music.mp3</code> y <code>public/click.mp3</code>.</p>
         <p style="text-align:center;margin-top:20px;"><a href="/" class="btn-red">Volver al inicio</a></p>
       </div>
     </div>
