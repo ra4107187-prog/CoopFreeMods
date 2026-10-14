@@ -453,6 +453,158 @@ function navbar(sesion, nNotif, extra, opts) {
         audio.pause();
         saveTime();
       }
+
+      // ---- Instalación automática de mods ----
+      if (!window.__cfmAutoInstallBound) {
+        window.__cfmAutoInstallBound = true;
+
+        function cfmIdb() {
+          return new Promise(function(resolve, reject) {
+            var req = indexedDB.open('cfm_auto_install', 1);
+            req.onupgradeneeded = function() {
+              var db = req.result;
+              if (!db.objectStoreNames.contains('handles')) db.createObjectStore('handles');
+            };
+            req.onsuccess = function() { resolve(req.result); };
+            req.onerror = function() { reject(req.error); };
+          });
+        }
+        async function cfmLoadDir() {
+          try {
+            var db = await cfmIdb();
+            return await new Promise(function(resolve, reject) {
+              var tx = db.transaction('handles', 'readonly');
+              var r = tx.objectStore('handles').get('modsFolder');
+              r.onsuccess = function() { resolve(r.result || null); };
+              r.onerror = function() { reject(r.error); };
+            });
+          } catch (e) { return null; }
+        }
+        async function cfmEnsurePerm(handle) {
+          if (!handle) return false;
+          try {
+            var q = await handle.queryPermission({ mode: 'readwrite' });
+            if (q === 'granted') return true;
+            var r = await handle.requestPermission({ mode: 'readwrite' });
+            return r === 'granted';
+          } catch (e) { return false; }
+        }
+        async function cfmWriteFile(dir, pathParts, data) {
+          var cur = dir;
+          for (var i = 0; i < pathParts.length - 1; i++) {
+            var part = pathParts[i];
+            if (!part || part === '.' || part === '..') continue;
+            cur = await cur.getDirectoryHandle(part, { create: true });
+          }
+          var fname = pathParts[pathParts.length - 1];
+          if (!fname) return;
+          var fh = await cur.getFileHandle(fname, { create: true });
+          var w = await fh.createWritable();
+          await w.write(data);
+          await w.close();
+        }
+        function cfmLoadJSZip() {
+          return new Promise(function(resolve, reject) {
+            if (window.JSZip) return resolve(window.JSZip);
+            var s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+            s.onload = function() { resolve(window.JSZip); };
+            s.onerror = function() { reject(new Error('No se pudo cargar JSZip')); };
+            document.head.appendChild(s);
+          });
+        }
+        function cfmToast(text, ok) {
+          var el = document.getElementById('cfm-install-toast');
+          if (!el) {
+            el = document.createElement('div');
+            el.id = 'cfm-install-toast';
+            el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:99999;background:#1f2937;color:#fff;padding:12px 18px;border-radius:10px;border:1px solid #374151;font-size:14px;max-width:90%;box-shadow:0 8px 30px rgba(0,0,0,.45);text-align:center;';
+            document.body.appendChild(el);
+          }
+          el.style.borderColor = ok ? '#22c55e' : '#e11d48';
+          el.textContent = text;
+          el.style.display = 'block';
+          clearTimeout(window.__cfmToastT);
+          window.__cfmToastT = setTimeout(function(){ el.style.display = 'none'; }, 4500);
+        }
+        async function cfmAutoInstall(modId, anchor) {
+          if (localStorage.getItem('cfm_auto_install') !== '1') return false;
+          if (!window.showDirectoryPicker) return false;
+          var dir = await cfmLoadDir();
+          if (!dir) {
+            cfmToast('Activá instalación automática y elegí la carpeta en Config ⚙️', false);
+            return false;
+          }
+          if (!(await cfmEnsurePerm(dir))) {
+            cfmToast('Sin permiso de escritura. Volvé a elegir la carpeta en Config.', false);
+            return false;
+          }
+          cfmToast('Instalando mod…', true);
+          try {
+            var res = await fetch('/download/' + modId, { credentials: 'same-origin' });
+            if (!res.ok) throw new Error('Error al descargar (' + res.status + ')');
+            // Si el servidor redirigió a un host externo, no podemos instalar
+            var finalUrl = res.url || '';
+            if (/^https?:\/\//i.test(finalUrl) && finalUrl.indexOf(location.origin) !== 0) {
+              cfmToast('Link externo: se abre la descarga normal.', true);
+              return false; // dejar que navegue
+            }
+            var cd = res.headers.get('Content-Disposition') || '';
+            var fname = 'mod.zip';
+            var m = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(cd);
+            if (m) fname = decodeURIComponent((m[1] || m[2] || 'mod.zip').trim());
+            var buf = await res.arrayBuffer();
+            var lower = fname.toLowerCase();
+            var doExtract = localStorage.getItem('cfm_auto_extract') !== '0';
+
+            if (doExtract && lower.endsWith('.zip')) {
+              var JSZip = await cfmLoadJSZip();
+              var zip = await JSZip.loadAsync(buf);
+              var names = Object.keys(zip.files);
+              var written = 0;
+              for (var i = 0; i < names.length; i++) {
+                var entry = zip.files[names[i]];
+                if (entry.dir) continue;
+                var parts = names[i].replace(/\\/g, '/').split('/').filter(Boolean);
+                if (!parts.length) continue;
+                // seguridad básica: no path traversal
+                if (parts.some(function(p){ return p === '..'; })) continue;
+                var data = await entry.async('uint8array');
+                await cfmWriteFile(dir, parts, data);
+                written++;
+              }
+              cfmToast('✅ Instalado: ' + written + ' archivo(s) en «' + dir.name + '»', true);
+            } else {
+              // .lua u otro: copiar el archivo tal cual
+              var safe = fname.replace(/[<>:"|?*\\/]/g, '_');
+              await cfmWriteFile(dir, [safe], new Uint8Array(buf));
+              cfmToast('✅ Guardado «' + safe + '» en «' + dir.name + '»', true);
+            }
+            return true;
+          } catch (e) {
+            console.error(e);
+            cfmToast('No se pudo instalar: ' + (e.message || e) + '. Se usará descarga normal.', false);
+            return false;
+          }
+        }
+
+        document.addEventListener('click', function(ev) {
+          try {
+            if (localStorage.getItem('cfm_auto_install') !== '1') return;
+            var a = ev.target.closest && ev.target.closest('a[href^="/download/"]');
+            if (!a) return;
+            var href = a.getAttribute('href') || '';
+            var mm = href.match(/^\/download\/(\d+)/);
+            if (!mm) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            var id = mm[1];
+            cfmAutoInstall(id, a).then(function(done) {
+              if (!done) window.location.href = href;
+            });
+          } catch (e) {}
+        }, true);
+      }
     } catch(e) {}
   })();
   </script>`;
@@ -1977,6 +2129,40 @@ app.get('/config', async (req, res) => {
           <input type="checkbox" id="optClick" style="width:auto;transform:scale(1.3);">
         </label>
 
+        <hr style="border:none;border-top:1px solid #2d3139;margin:22px 0;">
+        <h3 style="color:white;margin:0 0 8px 0;font-size:16px;">📦 Instalación automática</h3>
+        <p style="color:#9ca3af;font-size:13px;margin:0 0 14px 0;line-height:1.45;">
+          Al tocar <b>Descargar</b>, el mod se guarda en la carpeta que elijas (ideal: la carpeta <b>mods</b> del juego)
+          y se descomprime si es <b>.zip</b>. Funciona en <b>Chrome / Edge / Opera</b>. En Firefox o Safari se usa la descarga normal.
+          Links externos (Drive/MediaFire) y archivos <b>.7z/.rar</b> siguen con descarga normal.
+        </p>
+
+        <label class="config-row">
+          <span>
+            <b style="color:white;">Activar instalación automática</b><br>
+            <span style="color:#9ca3af;font-size:13px;">Intercepta el botón Descargar e instala en tu carpeta.</span>
+          </span>
+          <input type="checkbox" id="optAutoInstall" style="width:auto;transform:scale(1.3);">
+        </label>
+
+        <label class="config-row">
+          <span>
+            <b style="color:white;">Auto descomprimir (.zip)</b><br>
+            <span style="color:#9ca3af;font-size:13px;">Extrae el contenido del ZIP en la carpeta elegida. Si está off, solo copia el .zip.</span>
+          </span>
+          <input type="checkbox" id="optAutoExtract" style="width:auto;transform:scale(1.3);">
+        </label>
+
+        <div style="background:rgba(0,0,0,0.25);border:1px solid #2d3139;border-radius:10px;padding:14px;margin:12px 0 8px;">
+          <div style="color:#ced4da;font-size:13px;margin-bottom:10px;">
+            <b style="color:white;">Carpeta de instalación:</b>
+            <span id="autoInstallPath" style="color:#9ca3af;"> (ninguna elegida)</span>
+          </div>
+          <button type="button" id="btnPickFolder" class="btn-blue" style="width:100%;margin-bottom:8px;">📁 Elegir carpeta de mods</button>
+          <button type="button" id="btnClearFolder" class="btn-gray" style="width:100%;">Quitar carpeta</button>
+          <p id="autoInstallMsg" style="color:#9ca3af;font-size:12px;margin:10px 0 0 0;"></p>
+        </div>
+
         <p style="text-align:center;margin-top:20px;"><a href="/" class="btn-red">Volver al inicio</a></p>
       </div>
     </div>
@@ -1986,15 +2172,118 @@ app.get('/config', async (req, res) => {
       var mus = document.getElementById('optMusic');
       var lst = document.getElementById('optList');
       var clk = document.getElementById('optClick');
+      var auto = document.getElementById('optAutoInstall');
+      var extract = document.getElementById('optAutoExtract');
+      var pathEl = document.getElementById('autoInstallPath');
+      var msg = document.getElementById('autoInstallMsg');
       cur.checked = localStorage.getItem('cfm_cursor') === '1';
       mus.checked = localStorage.getItem('cfm_music') === '1';
       lst.checked = localStorage.getItem('cfm_list_view') === '1';
       clk.checked = localStorage.getItem('cfm_click') === '1';
+      auto.checked = localStorage.getItem('cfm_auto_install') === '1';
+      extract.checked = localStorage.getItem('cfm_auto_extract') !== '0';
+
+      function idb() {
+        return new Promise(function(resolve, reject) {
+          var req = indexedDB.open('cfm_auto_install', 1);
+          req.onupgradeneeded = function() {
+            var db = req.result;
+            if (!db.objectStoreNames.contains('handles')) db.createObjectStore('handles');
+          };
+          req.onsuccess = function() { resolve(req.result); };
+          req.onerror = function() { reject(req.error); };
+        });
+      }
+      async function saveHandle(handle) {
+        var db = await idb();
+        return new Promise(function(resolve, reject) {
+          var tx = db.transaction('handles', 'readwrite');
+          tx.objectStore('handles').put(handle, 'modsFolder');
+          tx.oncomplete = function() { resolve(); };
+          tx.onerror = function() { reject(tx.error); };
+        });
+      }
+      async function loadHandle() {
+        try {
+          var db = await idb();
+          return await new Promise(function(resolve, reject) {
+            var tx = db.transaction('handles', 'readonly');
+            var r = tx.objectStore('handles').get('modsFolder');
+            r.onsuccess = function() { resolve(r.result || null); };
+            r.onerror = function() { reject(r.error); };
+          });
+        } catch (e) { return null; }
+      }
+      async function clearHandle() {
+        try {
+          var db = await idb();
+          await new Promise(function(resolve, reject) {
+            var tx = db.transaction('handles', 'readwrite');
+            tx.objectStore('handles').delete('modsFolder');
+            tx.oncomplete = function() { resolve(); };
+            tx.onerror = function() { reject(tx.error); };
+          });
+        } catch (e) {}
+      }
+      async function refreshPath() {
+        var h = await loadHandle();
+        if (h && h.name) {
+          pathEl.textContent = ' ' + h.name + ' (permiso guardado)';
+          pathEl.style.color = '#86efac';
+        } else {
+          pathEl.textContent = ' (ninguna elegida)';
+          pathEl.style.color = '#9ca3af';
+        }
+      }
+      refreshPath();
+
+      if (!window.showDirectoryPicker) {
+        msg.textContent = 'Tu navegador no soporta elegir carpeta (probá Chrome o Edge). La descarga normal sigue funcionando.';
+        msg.style.color = '#fbbf24';
+      }
+
+      document.getElementById('btnPickFolder').addEventListener('click', async function() {
+        if (!window.showDirectoryPicker) {
+          alert('Esta función necesita Chrome, Edge u Opera.');
+          return;
+        }
+        try {
+          var handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+          // pedir permiso de escritura
+          if (handle.requestPermission) {
+            var perm = await handle.requestPermission({ mode: 'readwrite' });
+            if (perm !== 'granted') {
+              msg.textContent = 'No se otorgó permiso de escritura en la carpeta.';
+              msg.style.color = '#f87171';
+              return;
+            }
+          }
+          await saveHandle(handle);
+          localStorage.setItem('cfm_auto_install', '1');
+          auto.checked = true;
+          await refreshPath();
+          msg.textContent = 'Carpeta guardada. Al descargar un mod se instalará ahí.';
+          msg.style.color = '#86efac';
+        } catch (e) {
+          if (e && e.name === 'AbortError') return;
+          msg.textContent = 'No se pudo elegir la carpeta: ' + (e.message || e);
+          msg.style.color = '#f87171';
+        }
+      });
+      document.getElementById('btnClearFolder').addEventListener('click', async function() {
+        await clearHandle();
+        await refreshPath();
+        msg.textContent = 'Carpeta quitada.';
+        msg.style.color = '#9ca3af';
+      });
+
       function apply(){
         localStorage.setItem('cfm_cursor', cur.checked ? '1' : '0');
         localStorage.setItem('cfm_music', mus.checked ? '1' : '0');
         localStorage.setItem('cfm_list_view', lst.checked ? '1' : '0');
         localStorage.setItem('cfm_click', clk.checked ? '1' : '0');
+        localStorage.setItem('cfm_auto_install', auto.checked ? '1' : '0');
+        localStorage.setItem('cfm_auto_extract', extract.checked ? '1' : '0');
         if (cur.checked) document.documentElement.classList.add('cfm-sm64-cursor');
         else document.documentElement.classList.remove('cfm-sm64-cursor');
         if (lst.checked) document.documentElement.classList.add('cfm-list-view');
@@ -2022,6 +2311,8 @@ app.get('/config', async (req, res) => {
       mus.addEventListener('change', apply);
       lst.addEventListener('change', apply);
       clk.addEventListener('change', apply);
+      auto.addEventListener('change', apply);
+      extract.addEventListener('change', apply);
     })();
     </script>
   </body></html>`);
