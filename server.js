@@ -419,42 +419,75 @@ function navbar(sesion, nNotif, extra, opts) {
   <script>
   (function(){
     try {
+      // === Preferencias persistentes (localStorage + cookie backup) ===
+      function cfmSetPref(k, v) {
+        try { localStorage.setItem(k, v); } catch (e) {}
+        try { document.cookie = k + '=' + encodeURIComponent(v) + ';path=/;max-age=31536000;SameSite=Lax'; } catch (e) {}
+      }
+      function cfmGetPref(k) {
+        try {
+          var v = localStorage.getItem(k);
+          if (v !== null && v !== '') return v;
+        } catch (e) {}
+        try {
+          var m = document.cookie.match(new RegExp('(?:^|; )' + k.replace(/[$.*+?^(){}|[\]\\]/g,'\\$&') + '=([^;]*)'));
+          if (m) return decodeURIComponent(m[1]);
+        } catch (e) {}
+        return null;
+      }
       var TRACKS = {
         '1': '/public/bg-music.mp3',
         '2': '/public/bg-music-2.mp3',
         '3': '/public/bg-music-3.mp3'
       };
       function cfmTrackSrc() {
-        var id = localStorage.getItem('cfm_music_track') || '1';
+        var id = cfmGetPref('cfm_music_track') || '1';
         return TRACKS[id] || TRACKS['1'];
       }
       function cfmApplyPrefs() {
-        var c = localStorage.getItem('cfm_cursor') === '1';
-        var lv = localStorage.getItem('cfm_list_view') === '1';
-        if (c) document.documentElement.classList.add('cfm-sm64-cursor');
-        else document.documentElement.classList.remove('cfm-sm64-cursor');
-        if (lv) document.documentElement.classList.add('cfm-list-view');
-        else document.documentElement.classList.remove('cfm-list-view');
+        var c = cfmGetPref('cfm_cursor') === '1';
+        var lv = cfmGetPref('cfm_list_view') === '1';
+        document.documentElement.classList.toggle('cfm-sm64-cursor', c);
+        document.body && document.body.classList.toggle('cfm-sm64-cursor', c);
+        document.documentElement.classList.toggle('cfm-list-view', lv);
       }
       cfmApplyPrefs();
-      // Reaplicar al volver a la pestaña / historial (bfcache)
-      window.addEventListener('pageshow', cfmApplyPrefs);
-      document.addEventListener('visibilitychange', function(){ if (!document.hidden) cfmApplyPrefs(); });
+      window.addEventListener('pageshow', function(){ cfmApplyPrefs(); cfmTryMusic(); });
+      document.addEventListener('visibilitychange', function(){
+        if (!document.hidden) { cfmApplyPrefs(); cfmTryMusic(); }
+      });
 
-      // Sonido al hacer click (no depende de flags de página)
+      // Click: MP3 + fallback WebAudio (siempre funciona)
       if (!window.__cfmClickBound) {
         window.__cfmClickBound = true;
+        function cfmBeep() {
+          try {
+            var Ctx = window.AudioContext || window.webkitAudioContext;
+            if (!Ctx) return;
+            var ctx = window.__cfmAudioCtx || (window.__cfmAudioCtx = new Ctx());
+            if (ctx.state === 'suspended') ctx.resume();
+            var o = ctx.createOscillator();
+            var g = ctx.createGain();
+            o.type = 'square';
+            o.frequency.value = 880;
+            g.gain.value = 0.04;
+            o.connect(g); g.connect(ctx.destination);
+            o.start();
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+            o.stop(ctx.currentTime + 0.07);
+          } catch (e) {}
+        }
         document.addEventListener('click', function() {
           try {
-            if (localStorage.getItem('cfm_click') !== '1') return;
+            if (cfmGetPref('cfm_click') !== '1') return;
             var a = new Audio('/public/click.mp3');
             a.volume = 0.45;
-            a.play().catch(function(){});
-          } catch (e) {}
+            var p = a.play();
+            if (p && p.catch) p.catch(function(){ cfmBeep(); });
+          } catch (e) { cfmBeep(); }
         }, true);
       }
 
-      var m = localStorage.getItem('cfm_music') === '1';
       var audio = document.getElementById('cfm-bg-music');
       if (!audio) {
         audio = document.createElement('audio');
@@ -464,17 +497,15 @@ function navbar(sesion, nNotif, extra, opts) {
         audio.volume = 0.35;
         document.body.appendChild(audio);
       }
-      // Siempre respetar la pista elegida en config
       var wantSrc = cfmTrackSrc();
       try {
-        var curSrc = audio.getAttribute('src') || audio.src || '';
-        if (curSrc.indexOf(wantSrc) === -1) {
+        var curSrc = audio.getAttribute('src') || '';
+        if (!curSrc || curSrc.indexOf(wantSrc.split('/').pop()) === -1) {
           audio.src = wantSrc;
         }
       } catch (e) { audio.src = wantSrc; }
 
-      // Continuar desde donde iba (no reiniciar al cambiar de página)
-      var saved = parseFloat(localStorage.getItem('cfm_music_t') || '0');
+      var saved = parseFloat(cfmGetPref('cfm_music_t') || '0');
       function seekSaved() {
         try {
           if (!isNaN(saved) && saved > 0.25) {
@@ -489,7 +520,7 @@ function navbar(sesion, nNotif, extra, opts) {
 
       function saveTime() {
         try {
-          if (audio) localStorage.setItem('cfm_music_t', String(audio.currentTime || 0));
+          if (audio) cfmSetPref('cfm_music_t', String(audio.currentTime || 0));
         } catch (e) {}
       }
       setInterval(saveTime, 800);
@@ -497,28 +528,32 @@ function navbar(sesion, nNotif, extra, opts) {
       window.addEventListener('pagehide', saveTime);
       window.addEventListener('beforeunload', saveTime);
 
-      // En CoopTube (página de video) o SM64: solo pausar (NO apagar la preferencia)
-      var onVideo = location.pathname.indexOf("/cooptube/v/") === 0;
-      var onSm64 = location.pathname.indexOf("/jugar-sm64") === 0;
-      if (m && !onVideo && !onSm64) {
-        seekSaved();
-        var pr = audio.play();
-        if (pr && pr.catch) {
-          pr.catch(function(){
-            // Autoplay bloqueado: reintentar en el primer click/toque
-            var unlock = function() {
-              audio.play().catch(function(){});
-              document.removeEventListener('click', unlock, true);
-              document.removeEventListener('touchstart', unlock, true);
-            };
-            document.addEventListener('click', unlock, true);
-            document.addEventListener('touchstart', unlock, true);
-          });
+      function cfmTryMusic() {
+        var m = cfmGetPref('cfm_music') === '1';
+        var onVideo = location.pathname.indexOf('/cooptube/v/') === 0;
+        var onSm64 = location.pathname.indexOf('/jugar-sm64') === 0;
+        if (m && !onVideo && !onSm64) {
+          seekSaved();
+          var pr = audio.play();
+          if (pr && pr.catch) {
+            pr.catch(function(){
+              if (window.__cfmMusicUnlockBound) return;
+              window.__cfmMusicUnlockBound = true;
+              var unlock = function() {
+                if (cfmGetPref('cfm_music') !== '1') return;
+                audio.play().catch(function(){});
+              };
+              document.addEventListener('click', unlock, true);
+              document.addEventListener('touchstart', unlock, true);
+              document.addEventListener('keydown', unlock, true);
+            });
+          }
+        } else {
+          audio.pause();
+          saveTime();
         }
-      } else {
-        audio.pause();
-        saveTime();
       }
+      cfmTryMusic();
 
       // ---- Instalación automática de mods ----
       if (!window.__cfmAutoInstallBound) {
@@ -2367,13 +2402,8 @@ app.get('/config', async (req, res) => {
       var pathEl = document.getElementById('autoInstallPath');
       var msg = document.getElementById('autoInstallMsg');
       var TRACKS = { '1': '/public/bg-music.mp3', '2': '/public/bg-music-2.mp3', '3': '/public/bg-music-3.mp3' };
-      cur.checked = localStorage.getItem('cfm_cursor') === '1';
-      mus.checked = localStorage.getItem('cfm_music') === '1';
-      lst.checked = localStorage.getItem('cfm_list_view') === '1';
-      clk.checked = localStorage.getItem('cfm_click') === '1';
-      auto.checked = localStorage.getItem('cfm_auto_install') === '1';
-      extract.checked = localStorage.getItem('cfm_auto_extract') !== '0';
-      track.value = localStorage.getItem('cfm_music_track') || '1';
+      // checks se cargan en apply()/getPref más abajo
+
 
       function idb() {
         return new Promise(function(resolve, reject) {
@@ -2469,20 +2499,43 @@ app.get('/config', async (req, res) => {
         msg.style.color = '#9ca3af';
       });
 
+      function setPref(k, v) {
+        try { localStorage.setItem(k, v); } catch (e) {}
+        try { document.cookie = k + '=' + encodeURIComponent(v) + ';path=/;max-age=31536000;SameSite=Lax'; } catch (e) {}
+      }
+      function getPref(k) {
+        try { var v = localStorage.getItem(k); if (v !== null && v !== '') return v; } catch (e) {}
+        try {
+          var m = document.cookie.match(new RegExp('(?:^|; )' + k + '=([^;]*)'));
+          if (m) return decodeURIComponent(m[1]);
+        } catch (e) {}
+        return null;
+      }
+      cur.checked = getPref('cfm_cursor') === '1';
+      mus.checked = getPref('cfm_music') === '1';
+      lst.checked = getPref('cfm_list_view') === '1';
+      clk.checked = getPref('cfm_click') === '1';
+      auto.checked = getPref('cfm_auto_install') === '1';
+      extract.checked = getPref('cfm_auto_extract') !== '0';
+      track.value = getPref('cfm_music_track') || '1';
+
       function apply(){
-        localStorage.setItem('cfm_cursor', cur.checked ? '1' : '0');
-        localStorage.setItem('cfm_music', mus.checked ? '1' : '0');
-        localStorage.setItem('cfm_music_track', track.value || '1');
-        localStorage.setItem('cfm_list_view', lst.checked ? '1' : '0');
-        localStorage.setItem('cfm_click', clk.checked ? '1' : '0');
-        localStorage.setItem('cfm_auto_install', auto.checked ? '1' : '0');
-        localStorage.setItem('cfm_auto_extract', extract.checked ? '1' : '0');
-        if (cur.checked) document.documentElement.classList.add('cfm-sm64-cursor');
-        else document.documentElement.classList.remove('cfm-sm64-cursor');
-        if (lst.checked) document.documentElement.classList.add('cfm-list-view');
-        else document.documentElement.classList.remove('cfm-list-view');
+        setPref('cfm_cursor', cur.checked ? '1' : '0');
+        setPref('cfm_music', mus.checked ? '1' : '0');
+        setPref('cfm_music_track', track.value || '1');
+        setPref('cfm_list_view', lst.checked ? '1' : '0');
+        setPref('cfm_click', clk.checked ? '1' : '0');
+        setPref('cfm_auto_install', auto.checked ? '1' : '0');
+        setPref('cfm_auto_extract', extract.checked ? '1' : '0');
+        document.documentElement.classList.toggle('cfm-sm64-cursor', cur.checked);
+        document.body.classList.toggle('cfm-sm64-cursor', cur.checked);
+        document.documentElement.classList.toggle('cfm-list-view', lst.checked);
         if (clk.checked) {
-          try { var t = new Audio('/public/click.mp3'); t.volume = 0.45; t.play().catch(function(){}); } catch(e) {}
+          try {
+            var t = new Audio('/public/click.mp3');
+            t.volume = 0.45;
+            t.play().catch(function(){});
+          } catch(e) {}
         }
         var audio = document.getElementById('cfm-bg-music');
         if (!audio) {
@@ -2493,24 +2546,14 @@ app.get('/config', async (req, res) => {
           document.body.appendChild(audio);
         }
         var src = TRACKS[track.value] || TRACKS['1'];
-        try {
-          var curSrc = audio.getAttribute('src') || '';
-          if (curSrc.indexOf(src) === -1) {
-            var wasPlaying = !audio.paused;
-            var tpos = audio.currentTime || 0;
-            audio.src = src;
-            if (wasPlaying || mus.checked) {
-              audio.addEventListener('canplay', function once(){
-                audio.removeEventListener('canplay', once);
-                try { audio.currentTime = 0; } catch(e) {}
-                if (mus.checked) audio.play().catch(function(){});
-              });
-            }
-          }
-        } catch (e) { audio.src = src; }
+        var file = src.split('/').pop();
+        var curSrc = audio.getAttribute('src') || audio.src || '';
+        if (curSrc.indexOf(file) === -1) {
+          audio.src = src;
+        }
         if (mus.checked) {
           var p = audio.play();
-          if (p && p.catch) p.catch(function(){ alert('El navegador bloqueó la música. Hacé clic en la página e intentá de nuevo.'); });
+          if (p && p.catch) p.catch(function(){ alert('El navegador bloqueó la música. Hacé un click en la página y volvé a activar.'); });
         } else {
           audio.pause();
         }
@@ -2522,6 +2565,8 @@ app.get('/config', async (req, res) => {
       clk.addEventListener('change', apply);
       auto.addEventListener('change', apply);
       extract.addEventListener('change', apply);
+      // Aplicar al cargar para sincronizar estado real con los checks
+      apply();
     })();
     </script>
   </body></html>`);
