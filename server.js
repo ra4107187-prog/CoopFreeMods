@@ -399,7 +399,7 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/top">⭐ Top 10</a>
         <a href="/foros">💬 Foros</a>
         <a href="/como-instalar">📖 Cómo instalar</a>
-        <a href="/config">⚙️ Config</a>
+        <a href="/config">⚙️ Configuracion</a>
         ${mid}
         ${extra || ''}
         ${authLinks(sesion, nNotif || 0)}
@@ -2208,9 +2208,9 @@ app.get('/config', async (req, res) => {
             <span style="color:#9ca3af;font-size:13px;">Elegí una de las 3 pistas. Subí los archivos a <code>/public</code> si aún no están.</span>
           </span>
           <select id="optMusicTrack" style="width:100%;max-width:100%;">
-            <option value="1">Tema 1 — bg-music.mp3</option>
-            <option value="2">Tema 2 — bg-music-2.mp3</option>
-            <option value="3">Tema 3 — bg-music-3.mp3</option>
+            <option value="1">Tema 1 — Title Theme</option>
+            <option value="2">Tema 2 — Staff Roll</option>
+            <option value="3">Tema 3 — File Select</option>
           </select>
         </div>
 
