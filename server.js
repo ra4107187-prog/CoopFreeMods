@@ -334,6 +334,14 @@ function starsHtml(n) {
   for (let i = 1; i <= 5; i++) s += i <= v ? '★' : '☆';
   return s;
 }
+async function getTop1ModId() {
+  try {
+    const { data } = await supabase.from('mods').select('id,descargas').order('descargas', { ascending: false }).limit(1);
+    if (data && data[0] && (data[0].descargas || 0) > 0) return data[0].id;
+    if (data && data[0]) return data[0].id;
+  } catch (e) {}
+  return null;
+}
 function mapUser(row) {
   if (!row) return null;
   return {
@@ -399,7 +407,7 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/top">⭐ Top 10</a>
         <a href="/foros">💬 Foros</a>
         <a href="/como-instalar">📖 Cómo instalar</a>
-        <a href="/config">⚙️ Configuracion</a>
+        <a href="/config">⚙️ Config</a>
         ${mid}
         ${extra || ''}
         ${authLinks(sesion, nNotif || 0)}
@@ -587,27 +595,36 @@ function navbar(sesion, nNotif, extra, opts) {
   })();
   </script>`;
 }
-function renderModCards(mods, sesion) {
+function renderModCards(mods, sesion, top1Id) {
   if (!mods.length) return '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">No se encontraron mods.</p>';
   return mods.map(mod => {
     const numCom = (mod.comentarios || []).filter(c => !c.parentId).length;
     const foto = mod.rutasImagenes && mod.rutasImagenes[0];
     const img = foto ? `<img src="${escapeHtml(foto)}">` : '<div style="color:#555;font-size:40px;">📦</div>';
-    const goldClass = mod.destacado ? ' card-mod-semana' : '';
-    const badge = mod.destacado
-      ? '<span style="position:absolute;top:10px;right:10px;z-index:2;background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.35);">⭐ MOD DE LA SEMANA</span>'
-      : '';
+    const isTop1 = top1Id && mod.id === top1Id;
+    const goldClass = (mod.destacado ? ' card-mod-semana' : '') + (isTop1 ? ' card-mod-top1' : '');
+    let badge = '';
+    if (mod.destacado) {
+      badge += '<span style="position:absolute;top:10px;right:10px;z-index:2;background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.35);">⭐ MOD DE LA SEMANA</span>';
+    }
+    if (isTop1) {
+      badge += '<span style="position:absolute;top:10px;left:10px;z-index:2;background:linear-gradient(135deg,#c084fc,#7c3aed);color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.35);">🏆 TOP 1</span>';
+    }
+    const titleColor = mod.destacado ? '#ffe08a' : (isTop1 ? '#e9d5ff' : 'white');
+    const footerBorder = mod.destacado
+      ? 'border-top:1px solid rgba(245,197,66,0.35);'
+      : (isTop1 ? 'border-top:1px solid rgba(168,85,247,0.35);' : '');
     return `<div class="card${goldClass}" style="position:relative;">
       ${badge}
       <a href="/mod/${mod.id}" style="text-decoration:none;color:inherit;display:block;flex:1;">
         <div class="card-img-box">${img}</div>
         <div class="card-content" style="padding-bottom:8px;">
           <div class="tags"><span class="tag-version">${escapeHtml(mod.version)}</span><span class="tag-category">${escapeHtml(mod.categoria)}</span></div>
-          <h3 style="color:${mod.destacado ? '#ffe08a' : 'white'};margin:0 0 10px 0;">${escapeHtml(mod.titulo)}</h3>
+          <h3 style="color:${titleColor};margin:0 0 10px 0;">${escapeHtml(mod.titulo)}</h3>
           <p>${escapeHtml(mod.descripcion)}</p>
         </div>
       </a>
-      <div class="card-footer" style="padding:12px 15px;margin:0;${mod.destacado ? 'border-top:1px solid rgba(245,197,66,0.35);' : ''}">
+      <div class="card-footer" style="padding:12px 15px;margin:0;${footerBorder}">
         <span>por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></span>
         <div style="display:flex;gap:10px;align-items:center;color:#9ca3af;font-size:12px;pointer-events:none;">
           <span title="Descargas">⬇️ ${mod.descargas || 0}</span>
@@ -644,7 +661,10 @@ app.get('/', async (req, res) => {
     const { data: allMods } = await supabase.from('mods').select('*').order('id', { ascending: false }).limit(100);
     const mods = (allMods || []).map(mapMod);
     const recientes = mods.slice(0, 5);
-    const top3 = [...mods].sort((a, b) => (b.descargas || 0) - (a.descargas || 0)).slice(0, 3);
+    const topSorted = [...mods].sort((a, b) => (b.descargas || 0) - (a.descargas || 0));
+    const top3 = topSorted.slice(0, 3);
+    const top1Mod = topSorted[0] || null;
+    const top1Id = top1Mod ? top1Mod.id : null;
     let forosPop = [];
     let forosRec = [];
     try {
@@ -688,12 +708,16 @@ app.get('/', async (req, res) => {
     const miniMod = (m) => {
       const foto = m.rutasImagenes && m.rutasImagenes[0];
       const img = foto ? `<img src="${escapeHtml(foto)}" alt="">` : '<div class="home-mod-ph">📦</div>';
-      const goldStyle = m.destacado
-        ? ' style="border:1px solid #f5c542;background:linear-gradient(90deg,rgba(61,48,16,0.9),rgba(31,35,43,0.95));border-radius:10px;padding:6px;"'
-        : '';
-      const titleCol = m.destacado ? 'color:#ffe08a;' : '';
-      const star = m.destacado ? '⭐ ' : '';
-      return `<a href="/mod/${m.id}" class="home-mod-row"${goldStyle}>
+      const isTop1 = top1Id && m.id === top1Id;
+      let rowStyle = '';
+      if (m.destacado) {
+        rowStyle = ' style="border:1px solid #f5c542;background:linear-gradient(90deg,rgba(61,48,16,0.9),rgba(31,35,43,0.95));border-radius:10px;padding:6px;"';
+      } else if (isTop1) {
+        rowStyle = ' style="border:1px solid #a855f7;background:linear-gradient(90deg,rgba(55,30,80,0.9),rgba(31,35,43,0.95));border-radius:10px;padding:6px;"';
+      }
+      const titleCol = m.destacado ? 'color:#ffe08a;' : (isTop1 ? 'color:#e9d5ff;' : '');
+      const star = m.destacado ? '⭐ ' : (isTop1 ? '🏆 ' : '');
+      return `<a href="/mod/${m.id}" class="home-mod-row"${rowStyle}>
         <div class="home-mod-thumb">${img}</div>
         <div>
           <div class="home-mod-title" style="${titleCol}">${star}${escapeHtml(m.titulo)}</div>
@@ -769,6 +793,10 @@ app.get('/', async (req, res) => {
             <div class="home-side-box">
               <h3 style="color:#f5c542;">⭐ Mod de la semana</h3>
               ${modSemana ? miniMod(modSemana) : '<p style="color:#9ca3af;font-size:13px;">Todavía no hay uno destacado.</p>'}
+            </div>
+            <div class="home-side-box">
+              <h3 style="color:#c084fc;">🏆 Top 1 descargas</h3>
+              ${top1Mod ? miniMod(top1Mod) : '<p style="color:#9ca3af;font-size:13px;">Aún no hay descargas.</p>'}
             </div>
             <div class="home-side-box">
               <h3>📰 Última novedad</h3>
@@ -872,6 +900,7 @@ app.get('/mods', async (req, res) => {
       return res.redirect('/mod/' + mods[0].id);
     }
     const pg = paginateList(mods, req.query.page, 30);
+    const top1Id = await getTop1ModId();
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mods | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
@@ -905,7 +934,7 @@ app.get('/mods', async (req, res) => {
           <button type="submit" class="btn-blue">Filtrar</button>
         </form>
         <p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${pg.total} mods encontrados · Página ${pg.page} de ${pg.totalPages}</p>
-        <div class="grid">${renderModCards(pg.slice, sesion)}</div>
+        <div class="grid">${renderModCards(pg.slice, sesion, top1Id)}</div>
         ${renderPagination('/mods', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria, orden: orden === 'nuevos' ? '' : orden, tag: req.query.tag || '' })}
       </div>
     </body></html>`);
@@ -928,16 +957,22 @@ app.get('/top', async (req, res) => {
     let tarjetas = mods.map((mod, i) => {
       const foto = mod.rutasImagenes && mod.rutasImagenes[0];
       const img = foto ? `<img src="${escapeHtml(foto)}">` : '<div style="color:#555;font-size:40px;">📦</div>';
-      return `<div class="card" style="position:relative;">
+      const isTop1 = i === 0;
+      const cls = isTop1 ? ' card-mod-top1' : (mod.destacado ? ' card-mod-semana' : '');
+      const titleCol = isTop1 ? '#e9d5ff' : (mod.destacado ? '#ffe08a' : 'white');
+      const badge = isTop1
+        ? '<span style="position:absolute;top:10px;left:10px;z-index:2;background:linear-gradient(135deg,#c084fc,#7c3aed);color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;">🏆 TOP 1</span>'
+        : '';
+      return `<div class="card${cls}" style="position:relative;">
+        ${badge}
         <a href="/mod/${mod.id}" style="text-decoration:none;color:inherit;display:block;flex:1;">
           <div class="card-img-box">${img}</div>
           <div class="card-content">
             <div style="margin-bottom:10px;"><span class="top-badge">#${i+1}</span><span class="tag-version">${escapeHtml(mod.version)}</span></div>
-            <h3 style="color:white;">${escapeHtml(mod.titulo)}</h3>
-            
+            <h3 style="color:${titleCol};">${escapeHtml(mod.titulo)}</h3>
           </div>
         </a>
-        <div class="card-footer" style="padding:12px 15px;margin:0;">
+        <div class="card-footer" style="padding:12px 15px;margin:0;${isTop1 ? 'border-top:1px solid rgba(168,85,247,0.35);' : ''}">
           <span>por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></span>
           <span style="pointer-events:none;">⬇️ ${mod.descargas || 0}</span>
         </div>
@@ -988,7 +1023,8 @@ app.get('/favoritos', async (req, res) => {
     } catch (e) { console.error('favoritos videos', e); }
     let comboHtml = '';
     if (vids.length) comboHtml += renderVideoCards(vids);
-    if (mods.length) comboHtml += renderModCards(mods, sesion);
+    const top1IdFav = await getTop1ModId();
+    if (mods.length) comboHtml += renderModCards(mods, sesion, top1IdFav);
     if (!comboHtml) comboHtml = '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">Todavía no tenés favoritos. Dale like a un mod o video.</p>';
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Favoritos | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
@@ -1015,11 +1051,12 @@ app.get('/mis-mods', async (req, res) => {
       vids = (vdata || []).map(mapVideo).filter(Boolean);
     } catch (e) { console.error('mis-mods videos', e); }
     const pg = paginateList(mods, req.query.page, 30);
+    const top1IdMis = await getTop1ModId();
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mis mods | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <h2>📦 Mis mods</h2>
-        <div class="grid">${renderModCards(pg.slice, sesion)}</div>
+        <div class="grid">${renderModCards(pg.slice, sesion, top1IdMis)}</div>
         ${renderPagination('/mis-mods', pg.page, pg.totalPages)}
         <h2 style="margin-top:28px;">📺 Mis videos <span style="color:#9ca3af;font-size:14px;font-weight:600;">(video)</span></h2>
         <div class="grid">${vids.length ? renderVideoCards(vids) : '<p style="color:#9ca3af;">No publicaste videos en CoopTube todavía.</p>'}</div>
@@ -1120,7 +1157,10 @@ app.get('/mod/:id', async (req, res) => {
           ? `<a href="/mod-semana/quitar/${mod.id}" class="btn-gray" style="font-size:13px;padding:6px 12px;">Quitar de la semana</a>`
           : `<a href="/mod-semana/${mod.id}" class="btn-blue" style="font-size:13px;padding:6px 12px;" onclick="return confirm('¿Marcar como Mod de la semana?')">⭐ Mod de la semana</a>`)
       : '';
-    const badgeSemana = mod.destacado ? '<span class="tag-version" style="background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;border:none;">⭐ MOD DE LA SEMANA</span> ' : '';
+    const top1IdDetail = await getTop1ModId();
+    const isTop1Detail = top1IdDetail && mod.id === top1IdDetail;
+    const badgeSemana = (mod.destacado ? '<span class="tag-version" style="background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;border:none;">⭐ MOD DE LA SEMANA</span> ' : '')
+      + (isTop1Detail ? '<span class="tag-version" style="background:linear-gradient(135deg,#c084fc,#7c3aed);color:#fff;border:none;">🏆 TOP 1</span> ' : '');
 
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
@@ -1228,6 +1268,7 @@ app.get('/user/:username', async (req, res) => {
     if (!Array.isArray(user.seguidores)) user.seguidores = normalizeStringArray(user.seguidores);
     const { data: modsData } = await supabase.from('mods').select('*').eq('autor', username).order('id', { ascending: false });
     const userMods = (modsData || []).map(mapMod);
+    const top1IdUser = await getTop1ModId();
     let userVideos = [];
     try {
       const { data: vids } = await supabase.from('videos').select('*').eq('autor', username).order('created_at', { ascending: false }).limit(30);
@@ -1262,7 +1303,7 @@ app.get('/user/:username', async (req, res) => {
           <div style="display:flex;gap:10px;flex-wrap:wrap;">${bMsg}${bFollow}${bMod}</div>
         </div>
         <h2>📦 Mods de este usuario</h2>
-        <div class="grid">${renderModCards(userMods, sesion)}</div>
+        <div class="grid">${renderModCards(userMods, sesion, top1IdUser)}</div>
         <h2 style="margin-top:28px;">📺 Videos en CoopTube <span style="color:#9ca3af;font-size:14px;font-weight:600;">(video)</span></h2>
         <div class="grid">${userVideos.length ? renderVideoCards(userVideos) : '<p style="color:#9ca3af;">Este usuario aún no publicó videos.</p>'}</div>
       </div>
@@ -2208,9 +2249,9 @@ app.get('/config', async (req, res) => {
             <span style="color:#9ca3af;font-size:13px;">Elegí una de las 3 pistas. Subí los archivos a <code>/public</code> si aún no están.</span>
           </span>
           <select id="optMusicTrack" style="width:100%;max-width:100%;">
-            <option value="1">Tema 1 — Title Theme</option>
-            <option value="2">Tema 2 — Staff Roll</option>
-            <option value="3">Tema 3 — File Select</option>
+            <option value="1">Tema 1 — bg-music.mp3</option>
+            <option value="2">Tema 2 — bg-music-2.mp3</option>
+            <option value="3">Tema 3 — bg-music-3.mp3</option>
           </select>
         </div>
 
