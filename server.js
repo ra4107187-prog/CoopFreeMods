@@ -795,10 +795,6 @@ app.get('/', async (req, res) => {
               ${modSemana ? miniMod(modSemana) : '<p style="color:#9ca3af;font-size:13px;">Todavía no hay uno destacado.</p>'}
             </div>
             <div class="home-side-box">
-              <h3 style="color:#c084fc;">🏆 Top 1 descargas</h3>
-              ${top1Mod ? miniMod(top1Mod) : '<p style="color:#9ca3af;font-size:13px;">Aún no hay descargas.</p>'}
-            </div>
-            <div class="home-side-box">
               <h3>📰 Última novedad</h3>
               ${novedadHtml}
             </div>
