@@ -704,9 +704,12 @@ app.get('/', async (req, res) => {
       forosPop = [...lista].sort((a, b) => (b.vistas || 0) - (a.vistas || 0)).slice(0, 5);
     } catch (e) { console.error('foros home', e); }
     let videosRec = [];
+    let videosPop = [];
     try {
-      const { data: vids } = await supabase.from('videos').select('*').order('created_at', { ascending: false }).limit(5);
-      videosRec = (vids || []).map(mapVideo).filter(Boolean);
+      const { data: vids } = await supabase.from('videos').select('*').order('created_at', { ascending: false }).limit(30);
+      const vlist = (vids || []).map(mapVideo).filter(Boolean);
+      videosRec = vlist.slice(0, 5);
+      videosPop = [...vlist].sort((a, b) => (b.vistas || 0) - (a.vistas || 0)).slice(0, 5);
     } catch (e) { console.error('videos home', e); }
     let ultimaNovedad = null;
     try {
@@ -784,17 +787,17 @@ app.get('/', async (req, res) => {
               <p class="home-lead" style="font-size:14px;color:#9ca3af;">Proyecto iniciado por @Ellos (them) y continuado por @SuperAaron64. Los mods se guardan en la nube y no se pierden al reiniciar.</p>
             </div>
             <div class="home-section">
-              <h2>📺 Videos más recientes</h2>
-              <div class="home-list">${videosRec.map(miniVideo).join('') || '<p style="color:#9ca3af;">Aún no hay videos. <a href="/cooptube" style="color:#93c5fd;">Ir a CoopTube</a></p>'}</div>
-              <p style="margin:10px 0 0 0;"><a href="/cooptube" class="btn-gray" style="font-size:12px;">Ver CoopTube →</a></p>
-            </div>
-            <div class="home-section">
               <h2>🆕 Mods más recientes</h2>
               <div class="home-list">${recientes.map(miniMod).join('') || '<p style="color:#9ca3af;">Aún no hay mods.</p>'}</div>
             </div>
             <div class="home-section">
               <h2>💬 Foros recientes</h2>
               <div class="home-list">${forosRec.map(miniForo).join('') || '<p style="color:#9ca3af;">Sin temas aún.</p>'}</div>
+            </div>
+            <div class="home-section">
+              <h2>📺 Videos más recientes</h2>
+              <div class="home-list">${videosRec.map(miniVideo).join('') || '<p style="color:#9ca3af;">Aún no hay videos. <a href="/cooptube" style="color:#93c5fd;">Ir a CoopTube</a></p>'}</div>
+              <p style="margin:10px 0 0 0;"><a href="/cooptube" class="btn-gray" style="font-size:12px;">Ver CoopTube →</a></p>
             </div>
           </div>
           <aside class="home-side">
@@ -827,6 +830,11 @@ app.get('/', async (req, res) => {
             <div class="home-side-box">
               <h3>🔥 Foros populares</h3>
               <div class="home-list">${forosPop.map(miniForo).join('') || '<p style="color:#9ca3af;">—</p>'}</div>
+            </div>
+            <div class="home-side-box">
+              <h3>🎬 Videos populares</h3>
+              <div class="home-list">${videosPop.map(miniVideo).join('') || '<p style="color:#9ca3af;">—</p>'}</div>
+              <p style="margin:10px 0 0 0;"><a href="/cooptube" class="btn-gray" style="font-size:12px;">CoopTube →</a></p>
             </div>
           </aside>
         </div>
@@ -1271,9 +1279,13 @@ app.get('/user/:username', async (req, res) => {
       userVideos = (vids || []).map(mapVideo).filter(Boolean);
     } catch (e) {}
     let bFollow = '';
+    let bMsg = '';
     if (sesion.name && sesion.name !== user.usuario) {
       const ya = (user.seguidores || []).includes(sesion.name);
       bFollow = `<a href="/follow/${escapeHtml(user.usuario)}" class="btn-red" style="background:${ya?'#4b5563':'#ff3333'};">${ya?'Unfollow':'Seguir'}</a>`;
+      bMsg = `<a href="/mensajes/${encodeURIComponent(user.usuario)}" class="btn-blue">✉️ Mensaje</a>`;
+    } else if (!sesion.name) {
+      bMsg = `<a href="/login" class="btn-blue">✉️ Mensaje</a>`;
     }
     let bMod = '';
     if (sesion.esMod && user.usuario !== MODERADOR) {
@@ -1292,7 +1304,7 @@ app.get('/user/:username', async (req, res) => {
             <p style="color:#ced4da;margin:10px 0;">${escapeHtml(user.descripcion)}</p>
             <p style="color:#9ca3af;font-size:12px;margin:0;">Desde el ${escapeHtml(user.fechaRegistro)} · 👥 ${(user.seguidores||[]).length} seguidores</p>
           </div>
-          <div style="display:flex;gap:10px;">${bFollow}${bMod}</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">${bMsg}${bFollow}${bMod}</div>
         </div>
         <h2>📦 Mods de este usuario</h2>
         <div class="grid">${renderModCards(userMods, sesion)}</div>
@@ -3662,7 +3674,7 @@ app.get('/stats', async (req, res) => {
   }
 });
 
-// ========== Mensajes privados ==========
+// ========== Mensajes privados (chat 1 a 1) ==========
 app.get('/mensajes', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name) return res.redirect('/login');
@@ -3672,36 +3684,31 @@ app.get('/mensajes', async (req, res) => {
       .select('*')
       .or(`de.eq.${sesion.name},para.eq.${sesion.name}`)
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(300);
     if (error) throw error;
-    const items = (data || []).map(m => {
-      const mio = m.de === sesion.name;
-      return `<div class="comment-box" style="${m.leido || mio ? '' : 'border-color:#e11d48;'}">
-        <div style="font-size:12px;color:#9ca3af;">${mio ? 'Para' : 'De'} <a href="/user/${escapeHtml(mio ? m.para : m.de)}" class="author">@${escapeHtml(mio ? m.para : m.de)}</a>
-          · ${escapeHtml(new Date(m.created_at).toLocaleString('es-AR'))}</div>
-        <p style="margin:8px 0 0;color:#e5e7eb;">${escapeHtml(m.texto || '')}</p>
-      </div>`;
-    }).join('') || '<p style="color:#9ca3af;">No tenés mensajes.</p>';
-    // marcar leídos los recibidos
-    try {
-      await supabase.from('mensajes').update({ leido: true }).eq('para', sesion.name).eq('leido', false);
-    } catch (e) {}
+    // Agrupar por interlocutor (última actividad)
+    const map = new Map();
+    (data || []).forEach(m => {
+      const other = m.de === sesion.name ? m.para : m.de;
+      if (!other || map.has(other)) return;
+      const unread = m.para === sesion.name && !m.leido;
+      map.set(other, { other, last: m.texto, at: m.created_at, unread });
+    });
+    const convs = [...map.values()];
+    const list = convs.map(c => `
+      <a href="/mensajes/${encodeURIComponent(c.other)}" class="comment-box" style="display:block;text-decoration:none;color:inherit;${c.unread ? 'border-color:#e11d48;' : ''}">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
+          <b style="color:#fff;">@${escapeHtml(c.other)}</b>
+          <span style="font-size:11px;color:#6b7280;">${escapeHtml(c.at ? new Date(c.at).toLocaleString('es-AR') : '')}</span>
+        </div>
+        <p style="margin:8px 0 0;color:#9ca3af;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.unread ? '🔴 ' : ''}${escapeHtml(c.last || '')}</p>
+      </a>`).join('') || '<p style="color:#9ca3af;">No tenés chats todavía. Entrá al perfil de alguien y tocá <b>✉️ Mensaje</b>.</p>';
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mensajes | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container" style="max-width:720px;">
-        <h1 style="color:white;">✉️ Mensajes privados</h1>
-        <div class="form-box" style="margin:16px 0;">
-          <h2 style="margin-top:0;">Nuevo mensaje</h2>
-          <form action="/mensajes" method="POST">
-            <label>Para (usuario)</label>
-            <input type="text" name="para" required maxlength="40" placeholder="Nombre de usuario">
-            <label>Mensaje</label>
-            <textarea name="texto" required minlength="1" maxlength="1000" rows="3"></textarea>
-            <button type="submit" class="btn-red">Enviar</button>
-          </form>
-        </div>
-        <h2 style="color:white;">Bandeja</h2>
-        ${items}
+        <h1 style="color:white;">✉️ Mensajes</h1>
+        <p style="color:#9ca3af;font-size:14px;">Chats privados. Para escribirle a alguien, abrí su perfil y tocá <b>Mensaje</b>.</p>
+        ${list}
       </div></body></html>`);
   } catch (e) {
     console.error(e);
@@ -3709,26 +3716,133 @@ app.get('/mensajes', async (req, res) => {
   }
 });
 
-app.post('/mensajes', async (req, res) => {
+app.get('/mensajes/:username', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const nNotif = await countNotif(sesion.name);
+  const other = String(req.params.username || '').trim();
+  if (!other || other === sesion.name) return res.redirect('/mensajes');
+  try {
+    const { data: u } = await supabase.from('usuarios').select('usuario').eq('usuario', other).single();
+    if (!u) return pageError(res, 404, 'Usuario no existe', 'No hay nadie llamado @' + escapeHtml(other), sesion, nNotif);
+
+    // Mensajes entre ambos (filtramos en JS por si el or de supabase es sensible)
+    const { data, error } = await supabase.from('mensajes')
+      .select('*')
+      .or(`and(de.eq.${sesion.name},para.eq.${other}),and(de.eq.${other},para.eq.${sesion.name})`)
+      .order('created_at', { ascending: true })
+      .limit(200);
+    if (error) throw error;
+
+    // Marcar leídos los que me envió el otro
+    try {
+      await supabase.from('mensajes').update({ leido: true }).eq('de', other).eq('para', sesion.name).eq('leido', false);
+    } catch (e) {}
+
+    const bubbles = (data || []).map(m => {
+      const mio = m.de === sesion.name;
+      return `<div style="display:flex;justify-content:${mio ? 'flex-end' : 'flex-start'};margin:8px 0;">
+        <div style="max-width:78%;background:${mio ? 'linear-gradient(135deg,#e11d48,#b91c1c)' : '#1f2937'};color:#fff;padding:10px 14px;border-radius:14px;border:${mio ? 'none' : '1px solid #374151'};">
+          <div style="font-size:14px;line-height:1.4;">${escapeHtml(m.texto || '')}</div>
+          <div style="font-size:10px;opacity:0.7;margin-top:6px;text-align:right;">${escapeHtml(m.created_at ? new Date(m.created_at).toLocaleString('es-AR') : '')}</div>
+        </div>
+      </div>`;
+    }).join('') || '<p style="color:#9ca3af;text-align:center;padding:24px;">Todavía no hay mensajes. ¡Saludá!</p>';
+
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Chat con @${escapeHtml(other)} | Coop Free Mods</title>${estilosCSS}
+    <style>
+      .chat-wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; min-height: 70vh; }
+      .chat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+      .chat-body { flex: 1; background: rgba(17,19,25,0.9); border: 1px solid #2d3139; border-radius: 14px; padding: 14px; overflow-y: auto; max-height: 55vh; }
+      .chat-form { display: flex; gap: 10px; margin-top: 12px; align-items: flex-end; }
+      .chat-form textarea { flex: 1; margin: 0; min-height: 48px; max-height: 120px; }
+      .chat-form button { margin: 0; white-space: nowrap; }
+    </style>
+    </head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container chat-wrap">
+        <div class="chat-head">
+          <div>
+            <a href="/mensajes" style="color:#93c5fd;font-size:13px;text-decoration:none;">← Todos los chats</a>
+            <h1 style="color:white;margin:6px 0 0;font-size:1.35rem;">Chat con <a href="/user/${escapeHtml(other)}" class="author">@${escapeHtml(other)}</a></h1>
+          </div>
+          <a href="/user/${escapeHtml(other)}" class="btn-gray">Ver perfil</a>
+        </div>
+        <div class="chat-body" id="chatBody">${bubbles}</div>
+        <form class="chat-form" action="/mensajes/${encodeURIComponent(other)}" method="POST">
+          <textarea name="texto" required minlength="1" maxlength="1000" placeholder="Escribí un mensaje..." rows="2"></textarea>
+          <button type="submit" class="btn-red">Enviar</button>
+        </form>
+      </div>
+      <script>
+        (function(){
+          var b = document.getElementById('chatBody');
+          if (b) b.scrollTop = b.scrollHeight;
+        })();
+      </script>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    // Fallback si el filtro or falla: traer y filtrar
+    try {
+      const { data } = await supabase.from('mensajes')
+        .select('*')
+        .or(`de.eq.${sesion.name},para.eq.${sesion.name}`)
+        .order('created_at', { ascending: true })
+        .limit(500);
+      const thread = (data || []).filter(m =>
+        (m.de === sesion.name && m.para === other) || (m.de === other && m.para === sesion.name)
+      );
+      try {
+        await supabase.from('mensajes').update({ leido: true }).eq('de', other).eq('para', sesion.name).eq('leido', false);
+      } catch (e2) {}
+      const bubbles = thread.map(m => {
+        const mio = m.de === sesion.name;
+        return `<div style="display:flex;justify-content:${mio ? 'flex-end' : 'flex-start'};margin:8px 0;">
+          <div style="max-width:78%;background:${mio ? 'linear-gradient(135deg,#e11d48,#b91c1c)' : '#1f2937'};color:#fff;padding:10px 14px;border-radius:14px;">
+            <div style="font-size:14px;">${escapeHtml(m.texto || '')}</div>
+            <div style="font-size:10px;opacity:0.7;margin-top:6px;text-align:right;">${escapeHtml(m.created_at ? new Date(m.created_at).toLocaleString('es-AR') : '')}</div>
+          </div></div>`;
+      }).join('') || '<p style="color:#9ca3af;text-align:center;padding:24px;">Todavía no hay mensajes. ¡Saludá!</p>';
+      res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Chat con @${escapeHtml(other)}</title>${estilosCSS}</head><body>
+        ${navbar(sesion, nNotif)}
+        <div class="main-container" style="max-width:720px;">
+          <p><a href="/mensajes" style="color:#93c5fd;">← Chats</a></p>
+          <h1 style="color:white;">Chat con @${escapeHtml(other)}</h1>
+          <div style="background:#111;border:1px solid #2d3139;border-radius:14px;padding:14px;min-height:200px;">${bubbles}</div>
+          <form action="/mensajes/${encodeURIComponent(other)}" method="POST" style="display:flex;gap:10px;margin-top:12px;">
+            <textarea name="texto" required maxlength="1000" rows="2" style="flex:1;margin:0;"></textarea>
+            <button type="submit" class="btn-red">Enviar</button>
+          </form>
+        </div></body></html>`);
+    } catch (e3) {
+      console.error(e3);
+      pageError(res, 500, 'Error', 'No se pudo abrir el chat.', sesion, nNotif);
+    }
+  }
+});
+
+app.post('/mensajes/:username', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name || sesion.banneado) return res.redirect('/login');
-  if (!rateLimit('msg:' + sesion.name, 2000)) return res.redirect('/mensajes');
-  const para = String(req.body.para || '').trim();
+  const para = String(req.params.username || '').trim();
+  if (!para || para === sesion.name) return res.redirect('/mensajes');
+  if (!rateLimit('msg:' + sesion.name + ':' + para, 1500)) return res.redirect('/mensajes/' + encodeURIComponent(para));
   const texto = cleanText(req.body.texto || '').slice(0, 1000);
-  if (!para || !texto || para === sesion.name) return res.redirect('/mensajes');
+  if (!texto) return res.redirect('/mensajes/' + encodeURIComponent(para));
   try {
     const { data: u } = await supabase.from('usuarios').select('usuario').eq('usuario', para).single();
-    if (!u) return pageError(res, 404, 'Usuario no existe', 'No hay nadie llamado ' + escapeHtml(para), sesion, 0);
+    if (!u) return pageError(res, 404, 'Usuario no existe', 'No hay nadie llamado @' + escapeHtml(para), sesion, 0);
     const { error } = await supabase.from('mensajes').insert({
       de: sesion.name, para, texto, leido: false
     });
     if (error) throw error;
-    await crearNotif(para, 'mensaje', `@${sesion.name} te envió un mensaje privado`, '/mensajes');
+    await crearNotif(para, 'mensaje', `@${sesion.name} te envió un mensaje`, '/mensajes/' + encodeURIComponent(sesion.name));
   } catch (e) {
     console.error(e);
-    return pageError(res, 500, 'Error', 'No se pudo enviar. ¿Existe la tabla mensajes?', sesion, 0);
+    return pageError(res, 500, 'Error', 'No se pudo enviar el mensaje.', sesion, 0);
   }
-  res.redirect('/mensajes');
+  res.redirect('/mensajes/' + encodeURIComponent(para));
 });
 
 // ========== ToadCode plantillas ==========
