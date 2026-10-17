@@ -419,15 +419,29 @@ function navbar(sesion, nNotif, extra, opts) {
   <script>
   (function(){
     try {
-      var c = localStorage.getItem('cfm_cursor') === '1';
-      var m = localStorage.getItem('cfm_music') === '1';
-      var lv = localStorage.getItem('cfm_list_view') === '1';
-      var clk = localStorage.getItem('cfm_click') === '1';
-      if (c) document.documentElement.classList.add('cfm-sm64-cursor');
-      else document.documentElement.classList.remove('cfm-sm64-cursor');
-      if (lv) document.documentElement.classList.add('cfm-list-view');
-      else document.documentElement.classList.remove('cfm-list-view');
-      // Sonido al hacer click
+      var TRACKS = {
+        '1': '/public/bg-music.mp3',
+        '2': '/public/bg-music-2.mp3',
+        '3': '/public/bg-music-3.mp3'
+      };
+      function cfmTrackSrc() {
+        var id = localStorage.getItem('cfm_music_track') || '1';
+        return TRACKS[id] || TRACKS['1'];
+      }
+      function cfmApplyPrefs() {
+        var c = localStorage.getItem('cfm_cursor') === '1';
+        var lv = localStorage.getItem('cfm_list_view') === '1';
+        if (c) document.documentElement.classList.add('cfm-sm64-cursor');
+        else document.documentElement.classList.remove('cfm-sm64-cursor');
+        if (lv) document.documentElement.classList.add('cfm-list-view');
+        else document.documentElement.classList.remove('cfm-list-view');
+      }
+      cfmApplyPrefs();
+      // Reaplicar al volver a la pestaña / historial (bfcache)
+      window.addEventListener('pageshow', cfmApplyPrefs);
+      document.addEventListener('visibilitychange', function(){ if (!document.hidden) cfmApplyPrefs(); });
+
+      // Sonido al hacer click (no depende de flags de página)
       if (!window.__cfmClickBound) {
         window.__cfmClickBound = true;
         document.addEventListener('click', function() {
@@ -440,17 +454,24 @@ function navbar(sesion, nNotif, extra, opts) {
         }, true);
       }
 
-
+      var m = localStorage.getItem('cfm_music') === '1';
       var audio = document.getElementById('cfm-bg-music');
       if (!audio) {
         audio = document.createElement('audio');
         audio.id = 'cfm-bg-music';
         audio.loop = true;
         audio.preload = 'auto';
-        audio.src = '/public/bg-music.mp3';
         audio.volume = 0.35;
         document.body.appendChild(audio);
       }
+      // Siempre respetar la pista elegida en config
+      var wantSrc = cfmTrackSrc();
+      try {
+        var curSrc = audio.getAttribute('src') || audio.src || '';
+        if (curSrc.indexOf(wantSrc) === -1) {
+          audio.src = wantSrc;
+        }
+      } catch (e) { audio.src = wantSrc; }
 
       // Continuar desde donde iba (no reiniciar al cambiar de página)
       var saved = parseFloat(localStorage.getItem('cfm_music_t') || '0');
@@ -476,12 +497,24 @@ function navbar(sesion, nNotif, extra, opts) {
       window.addEventListener('pagehide', saveTime);
       window.addEventListener('beforeunload', saveTime);
 
-      // En CoopTube (página de video) siempre silenciar fondo
+      // En CoopTube (página de video) o SM64: solo pausar (NO apagar la preferencia)
       var onVideo = location.pathname.indexOf("/cooptube/v/") === 0;
-      if (m && !onVideo) {
+      var onSm64 = location.pathname.indexOf("/jugar-sm64") === 0;
+      if (m && !onVideo && !onSm64) {
         seekSaved();
         var pr = audio.play();
-        if (pr && pr.catch) pr.catch(function(){});
+        if (pr && pr.catch) {
+          pr.catch(function(){
+            // Autoplay bloqueado: reintentar en el primer click/toque
+            var unlock = function() {
+              audio.play().catch(function(){});
+              document.removeEventListener('click', unlock, true);
+              document.removeEventListener('touchstart', unlock, true);
+            };
+            document.addEventListener('click', unlock, true);
+            document.addEventListener('touchstart', unlock, true);
+          });
+        }
       } else {
         audio.pause();
         saveTime();
@@ -648,16 +681,21 @@ function renderModCards(mods, sesion) {
     const numCom = (mod.comentarios || []).filter(c => !c.parentId).length;
     const foto = mod.rutasImagenes && mod.rutasImagenes[0];
     const img = foto ? `<img src="${escapeHtml(foto)}">` : '<div style="color:#555;font-size:40px;">📦</div>';
-    return `<div class="card" style="position:relative;">
+    const goldClass = mod.destacado ? ' card-mod-semana' : '';
+    const badge = mod.destacado
+      ? '<span style="position:absolute;top:10px;right:10px;z-index:2;background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.35);">⭐ MOD DE LA SEMANA</span>'
+      : '';
+    return `<div class="card${goldClass}" style="position:relative;">
+      ${badge}
       <a href="/mod/${mod.id}" style="text-decoration:none;color:inherit;display:block;flex:1;">
         <div class="card-img-box">${img}</div>
         <div class="card-content" style="padding-bottom:8px;">
           <div class="tags"><span class="tag-version">${escapeHtml(mod.version)}</span><span class="tag-category">${escapeHtml(mod.categoria)}</span></div>
-          <h3 style="color:white;margin:0 0 10px 0;">${escapeHtml(mod.titulo)}</h3>
+          <h3 style="color:${mod.destacado ? '#ffe08a' : 'white'};margin:0 0 10px 0;">${escapeHtml(mod.titulo)}</h3>
           <p>${escapeHtml(mod.descripcion)}</p>
         </div>
       </a>
-      <div class="card-footer" style="padding:12px 15px;margin:0;">
+      <div class="card-footer" style="padding:12px 15px;margin:0;${mod.destacado ? 'border-top:1px solid rgba(245,197,66,0.35);' : ''}">
         <span>por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></span>
         <div style="display:flex;gap:10px;align-items:center;color:#9ca3af;font-size:12px;pointer-events:none;">
           <span title="Descargas">⬇️ ${mod.descargas || 0}</span>
@@ -738,10 +776,15 @@ app.get('/', async (req, res) => {
     const miniMod = (m) => {
       const foto = m.rutasImagenes && m.rutasImagenes[0];
       const img = foto ? `<img src="${escapeHtml(foto)}" alt="">` : '<div class="home-mod-ph">📦</div>';
-      return `<a href="/mod/${m.id}" class="home-mod-row">
+      const goldStyle = m.destacado
+        ? ' style="border:1px solid #f5c542;background:linear-gradient(90deg,rgba(61,48,16,0.9),rgba(31,35,43,0.95));border-radius:10px;padding:6px;"'
+        : '';
+      const titleCol = m.destacado ? 'color:#ffe08a;' : '';
+      const star = m.destacado ? '⭐ ' : '';
+      return `<a href="/mod/${m.id}" class="home-mod-row"${goldStyle}>
         <div class="home-mod-thumb">${img}</div>
         <div>
-          <div class="home-mod-title">${escapeHtml(m.titulo)}</div>
+          <div class="home-mod-title" style="${titleCol}">${star}${escapeHtml(m.titulo)}</div>
           <div class="home-mod-meta">@${escapeHtml(m.autor)} · ⬇️ ${m.descargas || 0}</div>
         </div>
       </a>`;
@@ -812,7 +855,7 @@ app.get('/', async (req, res) => {
               <p style="margin:10px 0 0;"><a href="/stats" class="btn-gray" style="font-size:12px;">Ver más →</a></p>
             </div>
             <div class="home-side-box">
-              <h3>⭐ Mod de la semana</h3>
+              <h3 style="color:#f5c542;">⭐ Mod de la semana</h3>
               ${modSemana ? miniMod(modSemana) : '<p style="color:#9ca3af;font-size:13px;">Todavía no hay uno destacado.</p>'}
             </div>
             <div class="home-side-box">
@@ -1165,7 +1208,7 @@ app.get('/mod/:id', async (req, res) => {
           ? `<a href="/mod-semana/quitar/${mod.id}" class="btn-gray" style="font-size:13px;padding:6px 12px;">Quitar de la semana</a>`
           : `<a href="/mod-semana/${mod.id}" class="btn-blue" style="font-size:13px;padding:6px 12px;" onclick="return confirm('¿Marcar como Mod de la semana?')">⭐ Mod de la semana</a>`)
       : '';
-    const badgeSemana = mod.destacado ? '<span class="tag-version" style="background:#e11d48;">⭐ MOD DE LA SEMANA</span> ' : '';
+    const badgeSemana = mod.destacado ? '<span class="tag-version" style="background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;border:none;">⭐ MOD DE LA SEMANA</span> ' : '';
 
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
@@ -2161,7 +2204,7 @@ app.get('/jugar-sm64', async (req, res) => {
     (function(){
       try {
         localStorage.setItem('cfm_egg_sm64', '1');
-        localStorage.setItem('cfm_music', '0');
+        // No tocar cfm_music: solo pausar mientras jugás
         var audio = document.getElementById('cfm-bg-music');
         if (audio) audio.pause();
       } catch(e) {}
@@ -2247,6 +2290,17 @@ app.get('/config', async (req, res) => {
           </span>
           <input type="checkbox" id="optMusic" style="width:auto;transform:scale(1.3);">
         </label>
+        <div class="config-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <span>
+            <b style="color:white;">Pista de música</b><br>
+            <span style="color:#9ca3af;font-size:13px;">Elegí una de las 3 pistas. Subí los archivos a <code>/public</code> si aún no están.</span>
+          </span>
+          <select id="optMusicTrack" style="width:100%;max-width:100%;">
+            <option value="1">Tema 1 — bg-music.mp3</option>
+            <option value="2">Tema 2 — bg-music-2.mp3</option>
+            <option value="3">Tema 3 — bg-music-3.mp3</option>
+          </select>
+        </div>
 
         <label class="config-row">
           <span>
@@ -2305,18 +2359,21 @@ app.get('/config', async (req, res) => {
     (function(){
       var cur = document.getElementById('optCursor');
       var mus = document.getElementById('optMusic');
+      var track = document.getElementById('optMusicTrack');
       var lst = document.getElementById('optList');
       var clk = document.getElementById('optClick');
       var auto = document.getElementById('optAutoInstall');
       var extract = document.getElementById('optAutoExtract');
       var pathEl = document.getElementById('autoInstallPath');
       var msg = document.getElementById('autoInstallMsg');
+      var TRACKS = { '1': '/public/bg-music.mp3', '2': '/public/bg-music-2.mp3', '3': '/public/bg-music-3.mp3' };
       cur.checked = localStorage.getItem('cfm_cursor') === '1';
       mus.checked = localStorage.getItem('cfm_music') === '1';
       lst.checked = localStorage.getItem('cfm_list_view') === '1';
       clk.checked = localStorage.getItem('cfm_click') === '1';
       auto.checked = localStorage.getItem('cfm_auto_install') === '1';
       extract.checked = localStorage.getItem('cfm_auto_extract') !== '0';
+      track.value = localStorage.getItem('cfm_music_track') || '1';
 
       function idb() {
         return new Promise(function(resolve, reject) {
@@ -2415,6 +2472,7 @@ app.get('/config', async (req, res) => {
       function apply(){
         localStorage.setItem('cfm_cursor', cur.checked ? '1' : '0');
         localStorage.setItem('cfm_music', mus.checked ? '1' : '0');
+        localStorage.setItem('cfm_music_track', track.value || '1');
         localStorage.setItem('cfm_list_view', lst.checked ? '1' : '0');
         localStorage.setItem('cfm_click', clk.checked ? '1' : '0');
         localStorage.setItem('cfm_auto_install', auto.checked ? '1' : '0');
@@ -2431,10 +2489,25 @@ app.get('/config', async (req, res) => {
           audio = document.createElement('audio');
           audio.id = 'cfm-bg-music';
           audio.loop = true;
-          audio.src = '/public/bg-music.mp3';
           audio.volume = 0.35;
           document.body.appendChild(audio);
         }
+        var src = TRACKS[track.value] || TRACKS['1'];
+        try {
+          var curSrc = audio.getAttribute('src') || '';
+          if (curSrc.indexOf(src) === -1) {
+            var wasPlaying = !audio.paused;
+            var tpos = audio.currentTime || 0;
+            audio.src = src;
+            if (wasPlaying || mus.checked) {
+              audio.addEventListener('canplay', function once(){
+                audio.removeEventListener('canplay', once);
+                try { audio.currentTime = 0; } catch(e) {}
+                if (mus.checked) audio.play().catch(function(){});
+              });
+            }
+          }
+        } catch (e) { audio.src = src; }
         if (mus.checked) {
           var p = audio.play();
           if (p && p.catch) p.catch(function(){ alert('El navegador bloqueó la música. Hacé clic en la página e intentá de nuevo.'); });
@@ -2444,6 +2517,7 @@ app.get('/config', async (req, res) => {
       }
       cur.addEventListener('change', apply);
       mus.addEventListener('change', apply);
+      track.addEventListener('change', apply);
       lst.addEventListener('change', apply);
       clk.addEventListener('change', apply);
       auto.addEventListener('change', apply);
