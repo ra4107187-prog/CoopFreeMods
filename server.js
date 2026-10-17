@@ -142,7 +142,7 @@ function renderVideoCards(videos) {
         </div>
         <div class="card-content">
           <h3 style="color:white;margin:0 0 6px 0;">${escapeHtml(v.titulo)} <span style="color:#9ca3af;font-size:12px;font-weight:600;">(video)</span></h3>
-          <p style="color:#9ca3af;font-size:12px;margin:0;">👁 ${v.vistas || 0} · ⭐ ${v.likes || 0} · ${escapeHtml(v.categoria || '')}</p>
+          <p style="color:#9ca3af;font-size:12px;margin:0;">👁 ${v.vistas || 0} · 👍 ${v.likes || 0} · ${escapeHtml(v.categoria || '')}</p>
         </div>
       </a>
     </div>`;
@@ -294,14 +294,45 @@ function formatFecha(val) {
 }
 function mapMod(row) {
   if (!row) return null;
+  let tags = row.tags;
+  if (typeof tags === 'string') {
+    try { tags = JSON.parse(tags); } catch (e) { tags = []; }
+  }
+  if (!Array.isArray(tags)) tags = [];
+  let reviews = row.reviews;
+  if (typeof reviews === 'string') {
+    try { reviews = JSON.parse(reviews); } catch (e) { reviews = []; }
+  }
+  if (!Array.isArray(reviews)) reviews = [];
+  const ratingSum = reviews.reduce((s, r) => s + (Number(r.estrellas) || 0), 0);
+  const ratingAvg = reviews.length ? (ratingSum / reviews.length) : 0;
   return {
     id: row.id, titulo: row.titulo, descripcion: row.descripcion, autor: row.autor,
     version: row.version, categoria: row.categoria, nombreArchivoReal: row.nombre_archivo_real,
     archivoPath: row.archivo_path, rutasImagenes: row.rutas_imagenes || [],
     descargas: row.descargas || 0, likes: row.likes || 0, usuariosLike: normalizeStringArray(row.usuarios_like),
     comentarios: row.comentarios || [], historialActualizaciones: row.historial_actualizaciones || [],
-    fechaCreacion: row.fecha_creacion, pesoArchivo: row.peso_archivo
+    fechaCreacion: row.fecha_creacion, pesoArchivo: row.peso_archivo,
+    tags: tags.map(String).filter(Boolean).slice(0, 12),
+    reviews,
+    ratingAvg,
+    ratingCount: reviews.length,
+    destacado: !!row.destacado
   };
+}
+function parseTagsInput(str) {
+  return String(str || '')
+    .split(/[,#]+/)
+    .map(s => s.trim().toLowerCase().replace(/[^a-z0-9áéíóúüñ_-]/gi, '').slice(0, 24))
+    .filter(Boolean)
+    .filter((t, i, a) => a.indexOf(t) === i)
+    .slice(0, 8);
+}
+function starsHtml(n) {
+  const v = Math.round(Number(n) || 0);
+  let s = '';
+  for (let i = 1; i <= 5; i++) s += i <= v ? '★' : '☆';
+  return s;
 }
 function mapUser(row) {
   if (!row) return null;
@@ -379,6 +410,8 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/novedades">📰 Novedades</a>
         <a href="/cooptube">📺 CoopTube</a>
         <a href="/ia-mods">🍄 ToadCode</a>
+        <a href="/mensajes">✉️ Mensajes</a>
+        <a href="/stats">📊 Stats</a>
         <a href="/discord">Discord</a>
       </div>
     </div>
@@ -680,6 +713,21 @@ app.get('/', async (req, res) => {
       const { data: novs } = await supabase.from('novedades').select('*').order('created_at', { ascending: false }).limit(1);
       if (novs && novs[0]) ultimaNovedad = novs[0];
     } catch (e) { console.error('novedad home', e); }
+    let modSemana = null;
+    try {
+      const { data: dest } = await supabase.from('mods').select('*').eq('destacado', true).order('id', { ascending: false }).limit(1);
+      if (dest && dest[0]) modSemana = mapMod(dest[0]);
+    } catch (e) { /* columna destacado opcional */ }
+    let statsPub = { mods: mods.length, descargas: 0, usuarios: 0, videos: 0, foros: forosRec.length };
+    try {
+      statsPub.descargas = mods.reduce((s, m) => s + (m.descargas || 0), 0);
+      const { count: nu } = await supabase.from('usuarios').select('*', { count: 'exact', head: true });
+      statsPub.usuarios = nu || 0;
+      const { count: nv } = await supabase.from('videos').select('*', { count: 'exact', head: true });
+      statsPub.videos = nv || 0;
+      const { count: nf } = await supabase.from('foro_temas').select('*', { count: 'exact', head: true });
+      if (nf != null) statsPub.foros = nf;
+    } catch (e) {}
     const cats = ['Character Select','Dynos','Hangouts / Romhack','Gamemodes','Movesets','Modifiers','Administrative / Utility','Resources','Otros'];
     const catHtml = cats.map(c =>
       `<a href="/mods?categoria=${encodeURIComponent(c)}" class="home-cat">${escapeHtml(c)}</a>`
@@ -750,6 +798,20 @@ app.get('/', async (req, res) => {
             </div>
           </div>
           <aside class="home-side">
+            <div class="home-side-box">
+              <h3>📊 Estadísticas</h3>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;color:#ced4da;">
+                <div><b style="color:#fff;font-size:18px;">${statsPub.mods}</b><br>mods</div>
+                <div><b style="color:#fff;font-size:18px;">${statsPub.descargas}</b><br>descargas</div>
+                <div><b style="color:#fff;font-size:18px;">${statsPub.usuarios}</b><br>usuarios</div>
+                <div><b style="color:#fff;font-size:18px;">${statsPub.videos}</b><br>videos</div>
+              </div>
+              <p style="margin:10px 0 0;"><a href="/stats" class="btn-gray" style="font-size:12px;">Ver más →</a></p>
+            </div>
+            <div class="home-side-box">
+              <h3>⭐ Mod de la semana</h3>
+              ${modSemana ? miniMod(modSemana) : '<p style="color:#9ca3af;font-size:13px;">Todavía no hay uno destacado.</p>'}
+            </div>
             <div class="home-side-box">
               <h3>📰 Última novedad</h3>
               ${novedadHtml}
@@ -824,16 +886,24 @@ app.get('/mods', async (req, res) => {
     const buscarTexto = (req.query.buscar || '').toLowerCase();
     const buscarCategoria = req.query.categoria || 'Todas';
     const buscarVersion = req.query.version || 'Todas';
+    const buscarTag = (req.query.tag || '').toLowerCase().trim();
+    const orden = req.query.orden || 'nuevos';
     const { data, error } = await supabase.from('mods').select('*').order('id', { ascending: false });
     if (error) throw error;
     let mods = (data || []).map(mapMod).filter(mod => {
       const q = buscarTexto;
       const byId = q && /^\d+$/.test(q) && String(mod.id) === q;
-      const byText = !q || byId || (mod.titulo || '').toLowerCase().includes(q) || (mod.descripcion || '').toLowerCase().includes(q) || (mod.autor || '').toLowerCase().includes(q);
+      const byText = !q || byId || (mod.titulo || '').toLowerCase().includes(q) || (mod.descripcion || '').toLowerCase().includes(q) || (mod.autor || '').toLowerCase().includes(q)
+        || (mod.tags || []).some(tg => String(tg).toLowerCase().includes(q));
       const c = buscarCategoria === 'Todas' || mod.categoria === buscarCategoria;
       const v = buscarVersion === 'Todas' || mod.version === buscarVersion;
-      return byText && c && v;
+      const tg = !buscarTag || (mod.tags || []).some(x => String(x).toLowerCase() === buscarTag);
+      return byText && c && v && tg;
     });
+    if (orden === 'descargas') mods.sort((a, b) => (b.descargas || 0) - (a.descargas || 0));
+    else if (orden === 'likes') mods.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+    else if (orden === 'rating') mods.sort((a, b) => (b.ratingAvg || 0) - (a.ratingAvg || 0) || (b.ratingCount || 0) - (a.ratingCount || 0));
+    else mods.sort((a, b) => (b.id || 0) - (a.id || 0));
     // Si buscan un ID exacto y hay 1 resultado, ir directo al mod (el link sigue siendo /mod/id)
     if (/^\d+$/.test(buscarTexto) && mods.length === 1) {
       return res.redirect('/mod/' + mods[0].id);
@@ -862,11 +932,18 @@ app.get('/mods', async (req, res) => {
             <option value="Resources" ${buscarCategoria==='Resources'?'selected':''}>Resources</option>
             <option value="Otros" ${buscarCategoria==='Otros'?'selected':''}>Otros</option>
           </select>
+          <select name="orden">
+            <option value="nuevos" ${orden==='nuevos'?'selected':''}>Orden: más nuevos</option>
+            <option value="descargas" ${orden==='descargas'?'selected':''}>Orden: más descargas</option>
+            <option value="likes" ${orden==='likes'?'selected':''}>Orden: más likes</option>
+            <option value="rating" ${orden==='rating'?'selected':''}>Orden: mejor reseña</option>
+          </select>
+          <input type="text" name="tag" placeholder="Tag (ej: cs)" value="${escapeHtml(req.query.tag || '')}" style="max-width:120px;">
           <button type="submit" class="btn-blue">Filtrar</button>
         </form>
         <p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${pg.total} mods encontrados · Página ${pg.page} de ${pg.totalPages}</p>
         <div class="grid">${renderModCards(pg.slice, sesion)}</div>
-        ${renderPagination('/mods', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria })}
+        ${renderPagination('/mods', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria, orden: orden === 'nuevos' ? '' : orden, tag: req.query.tag || '' })}
       </div>
     </body></html>`);
   } catch (err) {
@@ -1048,16 +1125,50 @@ app.get('/mod/:id', async (req, res) => {
       : sesion.banneado ? '<p style="color:#f87171;">Cuenta baneada: no puedes comentar.</p>'
       : '<p><a href="/login" style="color:#ff3333;">Inicia sesión</a> para comentar.</p>';
 
+    const reviews = mod.reviews || [];
+    const yaReview = sesion.name && reviews.some(r => r.usuario === sesion.name);
+    let reviewsHtml = reviews.slice().reverse().map(r => {
+      const delR = (sesion.name && (sesion.name === r.usuario || sesion.esMod))
+        ? ` <a href="/review-borrar/${mod.id}/${encodeURIComponent(r.id)}" style="color:#f87171;font-size:11px;" onclick="return confirm('¿Borrar reseña?')">Borrar</a>` : '';
+      return `<div class="comment-box"><b style="color:#fbbf24;">${starsHtml(r.estrellas)}</b> · <a href="/user/${escapeHtml(r.usuario)}" class="author">@${escapeHtml(r.usuario)}</a>${delR}
+        <p style="margin:6px 0 0;color:#ced4da;font-size:14px;">${escapeHtml(r.texto || '')}</p></div>`;
+    }).join('') || '<p style="color:#9ca3af;">Todavía no hay reseñas. ¡Sé el primero!</p>';
+    let reviewForm = '';
+    if (sesion.name && !sesion.banneado && !yaReview) {
+      reviewForm = `<form action="/review/${mod.id}" method="POST" style="margin-bottom:16px;">
+        <label style="color:#ced4da;">Tu puntuación</label>
+        <select name="estrellas" required style="margin-bottom:8px;">
+          <option value="5">★★★★★ 5</option>
+          <option value="4">★★★★☆ 4</option>
+          <option value="3">★★★☆☆ 3</option>
+          <option value="2">★★☆☆☆ 2</option>
+          <option value="1">★☆☆☆☆ 1</option>
+        </select>
+        <textarea name="texto" rows="2" maxlength="500" placeholder="Escribí una reseña corta (opcional)..." style="margin-bottom:8px;"></textarea>
+        <button type="submit" class="btn-blue">Enviar reseña</button>
+      </form>`;
+    } else if (sesion.name && yaReview) {
+      reviewForm = '<p style="color:#9ca3af;font-size:13px;">Ya dejaste una reseña en este mod.</p>';
+    } else if (!sesion.name) {
+      reviewForm = '<p style="color:#9ca3af;"><a href="/login" class="btn-blue">Entrar</a> para reseñar.</p>';
+    }
+    const bSemana = sesion.esMod
+      ? (mod.destacado
+          ? `<a href="/mod-semana/quitar/${mod.id}" class="btn-gray" style="font-size:13px;padding:6px 12px;">Quitar de la semana</a>`
+          : `<a href="/mod-semana/${mod.id}" class="btn-blue" style="font-size:13px;padding:6px 12px;" onclick="return confirm('¿Marcar como Mod de la semana?')">⭐ Mod de la semana</a>`)
+      : '';
+    const badgeSemana = mod.destacado ? '<span class="tag-version" style="background:#e11d48;">⭐ MOD DE LA SEMANA</span> ' : '';
+
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
-          <div><h1 style="color:white;">${escapeHtml(mod.titulo)}</h1>
+          <div><h1 style="color:white;">${badgeSemana}${escapeHtml(mod.titulo)}</h1>
             <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></p></div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
-            <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:16px;padding:10px 16px;background:#1f2937;border-radius:8px;border:1px solid #374151;">⭐ ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
-            ${bEdit}${bDel}
+            <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:16px;padding:10px 16px;background:#1f2937;border-radius:8px;border:1px solid #374151;">👍 ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
+            ${bEdit}${bDel}${bSemana}
           </div>
         </div>
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:25px;">
@@ -1070,11 +1181,17 @@ app.get('/mod/:id', async (req, res) => {
                 <tr><td>Publicado:</td><td>${escapeHtml(mod.fechaCreacion||'')}</td></tr>
                 <tr><td>Peso:</td><td>${escapeHtml(mod.pesoArchivo||'')}</td></tr>
                 <tr><td>Descargas:</td><td>${mod.descargas}</td></tr>
-                <tr><td>Likes:</td><td>${mod.likes}</td></tr>
+                <tr><td>Likes:</td><td>👍 ${mod.likes}</td></tr>
+                <tr><td>Reseña:</td><td>${mod.ratingCount ? (starsHtml(mod.ratingAvg) + ' (' + mod.ratingAvg.toFixed(1) + ' · ' + mod.ratingCount + ')') : 'Sin reseñas'}</td></tr>
+                <tr><td>Tags:</td><td>${(mod.tags && mod.tags.length) ? mod.tags.map(tg => '<a href="/mods?tag=' + encodeURIComponent(tg) + '" class="tag-category" style="margin:2px;">#' + escapeHtml(tg) + '</a>').join(' ') : '—'}</td></tr>
               </table>
             </div>
             <div class="info-box"><h2>🔄 Historial</h2>${updates}</div>
           </div>
+        </div>
+        <div class="info-box" style="margin-top:25px;"><h2>⭐ Reseñas (${mod.ratingCount || 0})</h2>
+          ${reviewForm}
+          <div>${reviewsHtml}</div>
         </div>
         <div class="info-box" style="margin-top:25px;"><h2>💬 Comentarios</h2>
           <div style="margin-bottom:20px;">${comentariosHTML}</div>${cajaCom}
@@ -1249,6 +1366,8 @@ app.get('/publish', async (req, res) => {
           <option value="Otros">Otros</option>
         </select>
         <label>Descripción:</label><textarea name="descripcion" required></textarea>
+        <label>Tags libres (opcional, separados por coma):</label>
+        <input type="text" name="tags" maxlength="120" placeholder="ej: cs, mario, hangout, ex">
         <label>Archivo (.zip / .lua, máx 10 MB) — opcional si ponés link:</label>
         <input type="file" name="archivoMod">
         <label>Link de descarga externo (opcional):</label>
@@ -1308,13 +1427,17 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
       const p = `${sesion.name}/${ts}-img${i}-${img.originalname}`;
       rutas.push(await uploadToStorage('mods-images', p, img.buffer, img.mimetype));
     }
+    const tagsArr = parseTagsInput(req.body.tags);
     const { error } = await supabase.from('mods').insert({
       titulo: req.body.titulo, descripcion: req.body.descripcion, autor: sesion.name,
       version: req.body.version, categoria: req.body.categoria,
       nombre_archivo_real: nombreReal, archivo_path: filePath, rutas_imagenes: rutas,
       descargas: 0, likes: 0, usuarios_like: [], comentarios: [], historial_actualizaciones: [],
       fecha_creacion: new Date().toLocaleDateString('es-ES'),
-      peso_archivo: peso
+      peso_archivo: peso,
+      tags: tagsArr,
+      reviews: [],
+      destacado: false
     });
     if (error) throw error;
     res.redirect('/mods');
@@ -2386,7 +2509,7 @@ app.get('/ia-mods', async (req, res) => {
     ${navbar(sesion, nNotif)}
     <div class="ia-wrap">
       <h1 style="color:white;margin:0 0 6px 0;">🍄 ToadCode</h1>
-      <p style="color:#9ca3af;font-size:14px;margin:0 0 14px 0;">Ayuda con <b>Lua / mods</b> de SM64 Co-op y con <b>dudas de esta web</b> (top mods, categorías, etc.).</p>
+      <p style="color:#9ca3af;font-size:14px;margin:0 0 14px 0;">Ayuda con <b>Lua / mods</b> de SM64 Co-op y con <b>dudas de esta web</b>. <a href="/ia-mods/plantillas" style="color:#93c5fd;">Ver plantillas de mods →</a> (top mods, categorías, etc.).</p>
       <div class="ia-layout">
         <aside class="ia-history" id="iaHistoryPanel">
           <div class="ia-history-head">
@@ -2982,7 +3105,7 @@ app.get('/cooptube', async (req, res) => {
         </a>
         <div class="card-footer" style="padding:12px 15px;margin:0;">
           <span>por <a href="/user/${escapeHtml(v.autor)}" class="author">@${escapeHtml(v.autor)}</a></span>
-          <span style="color:#9ca3af;font-size:12px;">👁 ${v.vistas || 0} · ⭐ ${v.likes || 0}</span>
+          <span style="color:#9ca3af;font-size:12px;">👁 ${v.vistas || 0} · 👍 ${v.likes || 0}</span>
         </div>
       </div>`;
     }).join('') || '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">No hay videos todavía. ¡Publicá el primero!</p>';
@@ -2996,7 +3119,7 @@ app.get('/cooptube', async (req, res) => {
       <div class="main-container">
         <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;">
           <div>
-            <h1 style="color:white;margin:0;">📺 CoopTube</h1>
+            <h1 style="color:white;margin:0;">📺 CoopTube</h1><p style="margin:8px 0 16px;"><a href="/cooptube/playlists" class="btn-blue">Playlists</a></p>
             <p style="color:#9ca3af;margin:6px 0 0 0;font-size:14px;">Videos de la comunidad SM64 Co-op · solo enlaces de YouTube</p>
           </div>
           ${pubBtn}
@@ -3243,12 +3366,12 @@ app.get('/cooptube/v/:id', async (req, res) => {
                 <span class="tag-category">${escapeHtml(v.categoria)}</span>
                 · por <a href="/user/${escapeHtml(v.autor)}" class="author">@${escapeHtml(v.autor)}</a>
                 · 👁 ${v.vistas || 0}
-                · ⭐ ${v.likes || 0}
+                · 👍 ${v.likes || 0}
                 ${fecha ? ' · ' + escapeHtml(fecha) : ''}
               </span>
               ${sesion.name
-                ? `<a href="/like-video/${v.id}" class="btn-like ${(v.usuariosLike || []).includes(sesion.name) ? 'active' : ''}" style="font-size:13px;padding:6px 12px;background:#1f2937;border-radius:8px;border:1px solid #374151;text-decoration:none;color:#fff;">${(v.usuariosLike || []).includes(sesion.name) ? '★ Quitar like' : '☆ Like'} (${v.likes || 0})</a>`
-                : `<a href="/login" class="btn-like" style="font-size:13px;padding:6px 12px;">☆ Like</a>`}
+                ? `<a href="/like-video/${v.id}" class="btn-like ${(v.usuariosLike || []).includes(sesion.name) ? 'active' : ''}" style="font-size:13px;padding:6px 12px;background:#1f2937;border-radius:8px;border:1px solid #374151;text-decoration:none;color:#fff;">${(v.usuariosLike || []).includes(sesion.name) ? '👍 Quitar like' : '👍 Like'} (${v.likes || 0})</a>`
+                : `<a href="/login" class="btn-like" style="font-size:13px;padding:6px 12px;">👍 Like</a>`}
             </div>
             ${modLink}
             <div style="background:rgba(31,35,43,0.95);border:1px solid #2d3139;border-radius:12px;padding:16px;color:#e5e7eb;line-height:1.5;">
@@ -3414,6 +3537,422 @@ app.get('/cooptube/borrar/:id'
   }
   await supabase.from('videos').delete().eq('id', id);
   res.redirect('/cooptube');
+});
+
+
+
+// ========== Reviews ==========
+app.post('/review/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  if (!id || !rateLimit('review:' + sesion.name + ':' + id, 3000)) return res.redirect('/mod/' + id);
+  let estrellas = parseInt(req.body.estrellas, 10);
+  if (!(estrellas >= 1 && estrellas <= 5)) estrellas = 5;
+  const texto = cleanText(req.body.texto || '').slice(0, 500);
+  try {
+    const { data } = await supabase.from('mods').select('*').eq('id', id).single();
+    if (!data) return res.redirect('/mods');
+    let reviews = Array.isArray(data.reviews) ? data.reviews.slice() : [];
+    if (typeof data.reviews === 'string') {
+      try { reviews = JSON.parse(data.reviews); } catch (e) { reviews = []; }
+    }
+    if (reviews.some(r => r.usuario === sesion.name)) return res.redirect('/mod/' + id);
+    reviews.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      usuario: sesion.name,
+      estrellas,
+      texto,
+      fecha: new Date().toISOString()
+    });
+    const { error } = await supabase.from('mods').update({ reviews }).eq('id', id);
+    if (error) console.error('review', error);
+    if (data.autor !== sesion.name) {
+      await crearNotif(data.autor, 'review', `@${sesion.name} reseñó tu mod "${data.titulo}" (${estrellas}★)`, `/mod/${id}`);
+    }
+  } catch (e) { console.error(e); }
+  res.redirect('/mod/' + id);
+});
+
+app.get('/review-borrar/:id/:rid', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  try {
+    const { data } = await supabase.from('mods').select('*').eq('id', id).single();
+    if (!data) return res.redirect('/mods');
+    let reviews = Array.isArray(data.reviews) ? data.reviews.slice() : [];
+    const r = reviews.find(x => x.id === req.params.rid);
+    if (!r) return res.redirect('/mod/' + id);
+    if (r.usuario !== sesion.name && !sesion.esMod) {
+      return pageError(res, 403, 'Sin permisos', 'No podés borrar esta reseña.', sesion, 0);
+    }
+    reviews = reviews.filter(x => x.id !== req.params.rid);
+    await supabase.from('mods').update({ reviews }).eq('id', id);
+  } catch (e) { console.error(e); }
+  res.redirect('/mod/' + id);
+});
+
+// ========== Mod de la semana ==========
+app.get('/mod-semana/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Solo moderadores pueden elegir el mod de la semana.', sesion, 0);
+  const id = parseInt(req.params.id, 10);
+  try {
+    await supabase.from('mods').update({ destacado: false }).eq('destacado', true);
+    await supabase.from('mods').update({ destacado: true }).eq('id', id);
+  } catch (e) {
+    return pageError(res, 500, 'Error', '¿Ejecutaste el SQL? Falta la columna destacado en mods.', sesion, 0);
+  }
+  res.redirect('/mod/' + id);
+});
+app.get('/mod-semana/quitar/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Solo moderadores.', sesion, 0);
+  const id = parseInt(req.params.id, 10);
+  try { await supabase.from('mods').update({ destacado: false }).eq('id', id); } catch (e) {}
+  res.redirect('/mod/' + id);
+});
+
+// ========== Stats públicas ==========
+app.get('/stats', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  try {
+    const { data: allMods } = await supabase.from('mods').select('id,descargas,likes,autor,titulo,categoria');
+    const mods = allMods || [];
+    const { count: nUsers } = await supabase.from('usuarios').select('*', { count: 'exact', head: true });
+    let nVideos = 0, nForos = 0;
+    try {
+      const v = await supabase.from('videos').select('*', { count: 'exact', head: true });
+      nVideos = v.count || 0;
+    } catch (e) {}
+    try {
+      const f = await supabase.from('foro_temas').select('*', { count: 'exact', head: true });
+      nForos = f.count || 0;
+    } catch (e) {}
+    const totalDesc = mods.reduce((s, m) => s + (m.descargas || 0), 0);
+    const totalLikes = mods.reduce((s, m) => s + (m.likes || 0), 0);
+    const byCat = {};
+    mods.forEach(m => { const c = m.categoria || 'Otros'; byCat[c] = (byCat[c] || 0) + 1; });
+    const catRows = Object.entries(byCat).sort((a, b) => b[1] - a[1])
+      .map(([c, n]) => `<tr><td>${escapeHtml(c)}</td><td style="text-align:right;">${n}</td></tr>`).join('');
+    const top = [...mods].sort((a, b) => (b.descargas || 0) - (a.descargas || 0)).slice(0, 5)
+      .map((m, i) => `<li style="margin:6px 0;"><a href="/mod/${m.id}" style="color:#93c5fd;">${i + 1}. ${escapeHtml(m.titulo)}</a> — ⬇️ ${m.descargas || 0}</li>`).join('');
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Estadísticas | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container" style="max-width:800px;">
+        <h1 style="color:white;">📊 Estadísticas públicas</h1>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:20px 0;">
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${mods.length}</div><div style="color:#9ca3af;">Mods</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${totalDesc}</div><div style="color:#9ca3af;">Descargas</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${totalLikes}</div><div style="color:#9ca3af;">Likes 👍</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nUsers || 0}</div><div style="color:#9ca3af;">Usuarios</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nVideos}</div><div style="color:#9ca3af;">Videos</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nForos}</div><div style="color:#9ca3af;">Foros</div></div>
+        </div>
+        <div class="info-box"><h2>Por categoría</h2>
+          <table class="meta-table">${catRows || '<tr><td>Sin datos</td></tr>'}</table>
+        </div>
+        <div class="info-box"><h2>Top 5 descargas</h2><ol style="margin:0;padding-left:18px;color:#ced4da;">${top || '<li>Sin datos</li>'}</ol></div>
+      </div></body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudieron cargar las estadísticas.', sesion, nNotif);
+  }
+});
+
+// ========== Mensajes privados ==========
+app.get('/mensajes', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const nNotif = await countNotif(sesion.name);
+  try {
+    const { data, error } = await supabase.from('mensajes')
+      .select('*')
+      .or(`de.eq.${sesion.name},para.eq.${sesion.name}`)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    const items = (data || []).map(m => {
+      const mio = m.de === sesion.name;
+      return `<div class="comment-box" style="${m.leido || mio ? '' : 'border-color:#e11d48;'}">
+        <div style="font-size:12px;color:#9ca3af;">${mio ? 'Para' : 'De'} <a href="/user/${escapeHtml(mio ? m.para : m.de)}" class="author">@${escapeHtml(mio ? m.para : m.de)}</a>
+          · ${escapeHtml(new Date(m.created_at).toLocaleString('es-AR'))}</div>
+        <p style="margin:8px 0 0;color:#e5e7eb;">${escapeHtml(m.texto || '')}</p>
+      </div>`;
+    }).join('') || '<p style="color:#9ca3af;">No tenés mensajes.</p>';
+    // marcar leídos los recibidos
+    try {
+      await supabase.from('mensajes').update({ leido: true }).eq('para', sesion.name).eq('leido', false);
+    } catch (e) {}
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mensajes | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container" style="max-width:720px;">
+        <h1 style="color:white;">✉️ Mensajes privados</h1>
+        <div class="form-box" style="margin:16px 0;">
+          <h2 style="margin-top:0;">Nuevo mensaje</h2>
+          <form action="/mensajes" method="POST">
+            <label>Para (usuario)</label>
+            <input type="text" name="para" required maxlength="40" placeholder="Nombre de usuario">
+            <label>Mensaje</label>
+            <textarea name="texto" required minlength="1" maxlength="1000" rows="3"></textarea>
+            <button type="submit" class="btn-red">Enviar</button>
+          </form>
+        </div>
+        <h2 style="color:white;">Bandeja</h2>
+        ${items}
+      </div></body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudieron cargar los mensajes. ¿Creaste la tabla mensajes en Supabase?', sesion, nNotif);
+  }
+});
+
+app.post('/mensajes', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  if (!rateLimit('msg:' + sesion.name, 2000)) return res.redirect('/mensajes');
+  const para = String(req.body.para || '').trim();
+  const texto = cleanText(req.body.texto || '').slice(0, 1000);
+  if (!para || !texto || para === sesion.name) return res.redirect('/mensajes');
+  try {
+    const { data: u } = await supabase.from('usuarios').select('usuario').eq('usuario', para).single();
+    if (!u) return pageError(res, 404, 'Usuario no existe', 'No hay nadie llamado ' + escapeHtml(para), sesion, 0);
+    const { error } = await supabase.from('mensajes').insert({
+      de: sesion.name, para, texto, leido: false
+    });
+    if (error) throw error;
+    await crearNotif(para, 'mensaje', `@${sesion.name} te envió un mensaje privado`, '/mensajes');
+  } catch (e) {
+    console.error(e);
+    return pageError(res, 500, 'Error', 'No se pudo enviar. ¿Existe la tabla mensajes?', sesion, 0);
+  }
+  res.redirect('/mensajes');
+});
+
+// ========== ToadCode plantillas ==========
+app.get('/ia-mods/plantillas', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const templates = [
+    {
+      id: 'cs-basico',
+      nombre: 'Character Select básico',
+      desc: 'Esqueleto mínimo de personaje CS.',
+      code: `-- Character Select básico (plantilla Coop Free Mods / ToadCode)
+if not _G.charSelectExists then return end
+
+local E_MODEL_CUSTOM = smlua_model_util_get_id("custom_geo") -- cambiá el nombre del modelo
+
+local CT_CUSTOM = characterSelect.character_add(
+  "Mi Personaje",
+  {"Descripción corta del personaje"},
+  "TuNombre",
+  {r = 255, g = 200, b = 50},
+  E_MODEL_CUSTOM,
+  CT_MARIO,
+  nil
+)
+`
+    },
+    {
+      id: 'hook-update',
+      nombre: 'Hook mario_update',
+      desc: 'Ejemplo de hook por frame en el jugador.',
+      code: `-- Hook mario_update (plantilla)
+local function on_mario_update(m)
+  if m.playerIndex ~= 0 then return end
+  -- tu lógica acá
+end
+
+hook_event(HOOK_MARIO_UPDATE, on_mario_update)
+`
+    },
+    {
+      id: 'chat-cmd',
+      nombre: 'Comando de chat',
+      desc: 'Registra un comando /hola',
+      code: `-- Comando de chat (plantilla)
+local function on_chat_command(msg)
+  if msg == "hola" then
+    djui_chat_message_create("¡Hola desde el mod!")
+    return true
+  end
+  return false
+end
+
+hook_event(HOOK_ON_CHAT_MESSAGE, function(m, msg)
+  if m.playerIndex ~= 0 then return true end
+  local body = msg:match("^/(.+)")
+  if body and on_chat_command(body) then return false end
+  return true
+end)
+`
+    },
+    {
+      id: 'gamemode-min',
+      nombre: 'Gamemode mínimo',
+      desc: 'Estructura simple de modo de juego.',
+      code: `-- Gamemode mínimo (plantilla)
+local active = false
+
+local function start_gm()
+  active = true
+  djui_chat_message_create("Gamemode iniciado")
+end
+
+local function stop_gm()
+  active = false
+  djui_chat_message_create("Gamemode detenido")
+end
+
+hook_event(HOOK_UPDATE, function()
+  if not active then return end
+  -- lógica del modo
+end)
+
+-- /gm start | /gm stop
+hook_event(HOOK_ON_CHAT_MESSAGE, function(m, msg)
+  if m.playerIndex ~= 0 then return true end
+  if msg == "/gm start" then start_gm(); return false end
+  if msg == "/gm stop" then stop_gm(); return false end
+  return true
+end)
+`
+    }
+  ];
+  const cards = templates.map(tp => `
+    <div class="info-box">
+      <h2 style="margin-top:0;">${escapeHtml(tp.nombre)}</h2>
+      <p style="color:#9ca3af;font-size:13px;">${escapeHtml(tp.desc)}</p>
+      <pre style="background:#0f1115;padding:12px;border-radius:8px;overflow:auto;font-size:12px;color:#e5e7eb;max-height:180px;">${escapeHtml(tp.code)}</pre>
+      <button type="button" class="btn-blue copy-tpl" data-code="${escapeHtml(tp.code).replace(/"/g, '&quot;')}">📋 Copiar código</button>
+      <a class="btn-gray" style="margin-left:8px;" download="${escapeHtml(tp.id)}.lua" href="data:text/plain;charset=utf-8,${encodeURIComponent(tp.code)}">⬇️ Descargar .lua</a>
+    </div>`).join('');
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Plantillas | ToadCode</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:900px;">
+      <h1 style="color:white;">🍄 Plantillas de mods</h1>
+      <p style="color:#9ca3af;">Esqueletos listos para copiar en ToadCode o en tu editor. Son puntos de partida, no mods terminados.</p>
+      <p><a href="/ia-mods" class="btn-red">← Volver a ToadCode</a></p>
+      ${cards}
+    </div>
+    <script>
+    document.querySelectorAll('.copy-tpl').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var c = btn.getAttribute('data-code') || '';
+        // decode entities roughly
+        var ta = document.createElement('textarea');
+        ta.innerHTML = c;
+        var text = ta.value;
+        navigator.clipboard.writeText(text).then(function(){ btn.textContent = '✅ Copiado'; setTimeout(function(){ btn.textContent = '📋 Copiar código'; }, 1500); });
+      });
+    });
+    </script>
+  </body></html>`);
+});
+
+// Link plantillas from ToadCode page - add near title if possible
+// ========== Playlists CoopTube ==========
+app.get('/cooptube/playlists', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  try {
+    const { data, error } = await supabase.from('playlists').select('*').order('created_at', { ascending: false }).limit(50);
+    if (error) throw error;
+    const cards = (data || []).map(pl => {
+      const n = Array.isArray(pl.video_ids) ? pl.video_ids.length : 0;
+      return `<div class="card"><div class="card-content">
+        <h3 style="color:white;margin:0 0 8px;"><a href="/cooptube/playlist/${pl.id}" style="color:white;text-decoration:none;">${escapeHtml(pl.titulo)}</a></h3>
+        <p style="color:#9ca3af;font-size:13px;margin:0;">por @${escapeHtml(pl.autor)} · ${n} videos</p>
+      </div></div>`;
+    }).join('') || '<p style="color:#9ca3af;">No hay playlists todavía.</p>';
+    const form = sesion.name && !sesion.banneado ? `
+      <div class="form-box" style="margin-bottom:20px;">
+        <h2 style="margin-top:0;">Crear playlist</h2>
+        <form action="/cooptube/playlists" method="POST">
+          <label>Título</label>
+          <input type="text" name="titulo" required maxlength="80" placeholder="Ej: Mejores showcases">
+          <label>IDs de videos (separados por coma, los ves en la URL /cooptube/v/ID)</label>
+          <input type="text" name="video_ids" placeholder="12, 15, 3">
+          <button type="submit" class="btn-red">Crear</button>
+        </form>
+      </div>` : '<p style="color:#9ca3af;"><a href="/login">Entrá</a> para crear playlists.</p>';
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Playlists | CoopTube</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <h1 style="color:white;">📺 Playlists de CoopTube</h1>
+        <p><a href="/cooptube" class="btn-gray">← CoopTube</a></p>
+        ${form}
+        <div class="grid">${cards}</div>
+      </div></body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', '¿Creaste la tabla playlists en Supabase?', sesion, nNotif);
+  }
+});
+
+app.post('/cooptube/playlists', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  const titulo = cleanText(req.body.titulo || '').slice(0, 80);
+  const ids = String(req.body.video_ids || '').split(/[,\\s]+/).map(x => parseInt(x, 10)).filter(n => n > 0).slice(0, 30);
+  if (!titulo) return res.redirect('/cooptube/playlists');
+  try {
+    const { data, error } = await supabase.from('playlists').insert({
+      titulo, autor: sesion.name, video_ids: ids
+    }).select('id').single();
+    if (error) throw error;
+    res.redirect('/cooptube/playlist/' + data.id);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo crear la playlist.', sesion, 0);
+  }
+});
+
+app.get('/cooptube/playlist/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const id = parseInt(req.params.id, 10);
+  try {
+    const { data: pl, error } = await supabase.from('playlists').select('*').eq('id', id).single();
+    if (error || !pl) return pageError(res, 404, 'No encontrada', 'Esa playlist no existe.', sesion, nNotif);
+    const ids = Array.isArray(pl.video_ids) ? pl.video_ids : [];
+    let videos = [];
+    if (ids.length) {
+      const { data: vids } = await supabase.from('videos').select('*').in('id', ids);
+      const map = {};
+      (vids || []).forEach(v => { map[v.id] = mapVideo(v); });
+      videos = ids.map(i => map[i]).filter(Boolean);
+    }
+    const del = (sesion.name === pl.autor || sesion.esMod)
+      ? `<a href="/cooptube/playlist-borrar/${pl.id}" class="btn-delete" onclick="return confirm('¿Borrar playlist?')">Borrar</a>` : '';
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(pl.titulo)} | Playlist</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <h1 style="color:white;">${escapeHtml(pl.titulo)}</h1>
+        <p style="color:#9ca3af;">por @${escapeHtml(pl.autor)} · ${videos.length} videos ${del}</p>
+        <p><a href="/cooptube/playlists" class="btn-gray">← Playlists</a></p>
+        <div class="grid">${videos.length ? renderVideoCards(videos) : '<p style="color:#9ca3af;">Sin videos.</p>'}</div>
+      </div></body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo cargar la playlist.', sesion, nNotif);
+  }
+});
+
+app.get('/cooptube/playlist-borrar/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  const { data } = await supabase.from('playlists').select('autor').eq('id', id).single();
+  if (!data) return res.redirect('/cooptube/playlists');
+  if (data.autor !== sesion.name && !sesion.esMod) {
+    return pageError(res, 403, 'Sin permisos', 'No podés borrar esta playlist.', sesion, 0);
+  }
+  await supabase.from('playlists').delete().eq('id', id);
+  res.redirect('/cooptube/playlists');
 });
 
 
