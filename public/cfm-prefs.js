@@ -52,7 +52,8 @@
   }
 
   function applyCursor() {
-    var on = isOn('cfm_cursor');
+    // En nostalgia: el cursor especial NO funciona
+    var on = isOn('cfm_cursor') && !isOn('cfm_nostalgia');
     document.documentElement.classList.toggle('cfm-sm64-cursor', on);
     if (document.body) document.body.classList.toggle('cfm-sm64-cursor', on);
 
@@ -73,7 +74,8 @@
   }
 
   function applyListView() {
-    document.documentElement.classList.toggle('cfm-list-view', isOn('cfm_list_view'));
+    // En nostalgia: vista lista NO aplica
+    document.documentElement.classList.toggle('cfm-list-view', isOn('cfm_list_view') && !isOn('cfm_nostalgia'));
   }
 
   function applyNostalgia() {
@@ -104,7 +106,8 @@
 
   function tryMusic() {
     var a = ensureAudio();
-    var want = isOn('cfm_music');
+    // En nostalgia: música de fondo NO funciona
+    var want = isOn('cfm_music') && !isOn('cfm_nostalgia');
     var path = location.pathname || '';
     var silence = path.indexOf('/cooptube/v/') === 0 || path.indexOf('/jugar-sm64') === 0;
 
@@ -173,7 +176,8 @@
   }
 
   function onClickSound() {
-    if (!isOn('cfm_click')) return;
+    // En nostalgia: sin sonido de click
+    if (!isOn('cfm_click') || isOn('cfm_nostalgia')) return;
     try {
       var a = new Audio('/public/click.mp3');
       a.volume = 0.45;
@@ -223,6 +227,7 @@
     isOn: isOn,
     applyAll: applyAll,
     tryMusic: tryMusic,
-    applyCursor: applyCursor
+    applyCursor: applyCursor,
+    isNostalgia: function () { return isOn('cfm_nostalgia'); }
   };
 })();
