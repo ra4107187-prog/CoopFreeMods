@@ -383,7 +383,7 @@ function authLinks(sesion, nNotif) {
     return `<a href="/login" style="color:#ced4da;text-decoration:none;font-size:14px;">Entrar</a>
     <a href="/register" class="btn-red">Registrarse</a>`;
   }
-  const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
+  const modBadge = sesion.esMod ? `<span class="mod-badge nav-modern">MOD</span>` : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
     <a href="/user/${escapeHtml(sesion.name)}" class="user-session-link" style="color:white;font-weight:bold;text-decoration:none;font-size:14px;">${escapeHtml(sesion.name)}</a>${modBadge}
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
@@ -400,7 +400,7 @@ function navbar(sesion, nNotif, extra, opts) {
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   const logoSrc = opts.logo || '/public/logo.png';
   const logoHref = opts.logoHref || '/';
-  return `<script src="/public/cfm-prefs.js?v=5"></script>
+  return `<script src="/public/cfm-prefs.js?v=6"></script>
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
@@ -437,7 +437,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=5';
+          s.src = '/public/cfm-prefs.js?v=6';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -517,6 +517,7 @@ function navbar(sesion, nNotif, extra, opts) {
           window.__cfmToastT = setTimeout(function(){ el.style.display = 'none'; }, 4500);
         }
         async function cfmAutoInstall(modId, anchor) {
+          if (localStorage.getItem('cfm_nostalgia') === '1') return false;
           if (localStorage.getItem('cfm_auto_install') !== '1') return false;
           if (!window.showDirectoryPicker) return false;
           var dir = await cfmLoadDir();
@@ -579,6 +580,7 @@ function navbar(sesion, nNotif, extra, opts) {
 
         document.addEventListener('click', function(ev) {
           try {
+            if (localStorage.getItem('cfm_nostalgia') === '1') return;
             if (localStorage.getItem('cfm_auto_install') !== '1') return;
             var a = ev.target.closest && ev.target.closest('a[href^="/download/"]');
             if (!a) return;
@@ -710,8 +712,8 @@ app.get('/', async (req, res) => {
             <option value="Otros" ${buscarCategoria==='Otros'?'selected':''}>Otros</option>
           </select>
           <button type="submit" class="btn-blue">Filtrar</button>
+          <span class="nostalgia-count">${pg.total} mods encontrados</span>
         </form>
-        <p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${pg.total} mods encontrados</p>
         <div class="grid">${renderModCards(pg.slice, sesion, top1Id)}</div>
         ${renderPagination('/', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria })}
       </div>
@@ -2330,13 +2332,23 @@ app.get('/jugar-sm64', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=5"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=6"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
         <h2 style="color:white;margin-top:0;">⚙️ Configuración</h2>
-        <p style="color:#9ca3af;font-size:14px;">Opciones especiales en <b>tu navegador</b> (no afectan a otros usuarios).</p>
+        <p style="color:#9ca3af;font-size:14px;" class="config-intro-modern">Opciones especiales en <b>tu navegador</b> (no afectan a otros usuarios).</p>
+        <p style="color:#9ca3af;font-size:14px;display:none;" class="config-intro-nostalgia">Modo nostalgia activo. Solo podés activarlo o desactivarlo acá.</p>
 
+        <label class="config-row" style="border:1px solid rgba(236,72,153,0.35);border-radius:10px;padding:14px;margin-top:12px;background:rgba(236,72,153,0.06);">
+          <span>
+            <b style="color:#f9a8d4;">📼 Modo nostalgia</b><br>
+            <span style="color:#9ca3af;font-size:13px;">Easter egg: vuelve el diseño de la web antigua (menú simple, fondo oscuro, sin secciones nuevas). Desactivalo para volver a la versión actual. <b style="color:#fbbf24;">Config sigue visible</b> para que puedas salir del modo.</span>
+          </span>
+          <input type="checkbox" id="optNostalgia" style="width:auto;transform:scale(1.3);">
+        </label>
+
+        <div id="configModernOpts">
         <label class="config-row">
           <span>
             <b style="color:white;">Cursor SM64</b><br>
@@ -2380,13 +2392,7 @@ app.get('/config', async (req, res) => {
           <input type="checkbox" id="optClick" style="width:auto;transform:scale(1.3);">
         </label>
 
-        <label class="config-row" style="border:1px solid rgba(236,72,153,0.35);border-radius:10px;padding:14px;margin-top:12px;background:rgba(236,72,153,0.06);">
-          <span>
-            <b style="color:#f9a8d4;">📼 Modo nostalgia</b><br>
-            <span style="color:#9ca3af;font-size:13px;">Easter egg: vuelve el diseño de la web antigua (menú simple, fondo oscuro, sin secciones nuevas). Desactivalo para volver a la versión actual. <b style="color:#fbbf24;">Config sigue visible</b> para que puedas salir del modo.</span>
-          </span>
-          <input type="checkbox" id="optNostalgia" style="width:auto;transform:scale(1.3);">
-        </label>
+        
 
         <hr style="border:none;border-top:1px solid #2d3139;margin:22px 0;">
         <h3 style="color:white;margin:0 0 8px 0;font-size:16px;">📦 Instalación automática</h3>
@@ -2421,6 +2427,8 @@ app.get('/config', async (req, res) => {
           <button type="button" id="btnClearFolder" class="btn-gray" style="width:100%;">Quitar carpeta</button>
           <p id="autoInstallMsg" style="color:#9ca3af;font-size:12px;margin:10px 0 0 0;"></p>
         </div>
+
+        </div><!-- /configModernOpts -->
 
         <p style="text-align:center;margin-top:20px;"><a href="/" class="btn-red">Volver al inicio</a></p>
       </div>
@@ -2576,10 +2584,18 @@ app.get('/config', async (req, res) => {
         if (window.cfmPrefs) {
           window.cfmPrefs.applyAll();
         } else {
-          // si cfm-prefs no cargó, forzar class al menos
           try {
             document.documentElement.classList.toggle('cfm-nostalgia', !!(nost && nost.checked));
           } catch (e2) {}
+        }
+        // Si se activa nostalgia, cortar música al toque
+        if (nost && nost.checked) {
+          try {
+            var ma = document.getElementById('cfm-bg-music');
+            if (ma) ma.pause();
+            var ban = document.getElementById('cfm-music-banner');
+            if (ban) ban.remove();
+          } catch (e3) {}
         }
         // feedback inmediato en esta página
         if (clk.checked) {
