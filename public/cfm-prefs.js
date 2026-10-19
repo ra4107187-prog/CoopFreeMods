@@ -7,6 +7,13 @@
   if (window.__cfmPrefsLoaded) return;
   window.__cfmPrefsLoaded = true;
 
+  /* early nostalgia */
+  try {
+    var _n = null;
+    try { _n = localStorage.getItem('cfm_nostalgia'); } catch (e) {}
+    if (_n === '1') document.documentElement.classList.add('cfm-nostalgia');
+  } catch (e) {}
+
   var TRACKS = {
     '1': '/public/bg-music.mp3',
     '2': '/public/bg-music-2.mp3',
