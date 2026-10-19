@@ -69,6 +69,12 @@
     document.documentElement.classList.toggle('cfm-list-view', isOn('cfm_list_view'));
   }
 
+  function applyNostalgia() {
+    var on = isOn('cfm_nostalgia');
+    document.documentElement.classList.toggle('cfm-nostalgia', on);
+    if (document.body) document.body.classList.toggle('cfm-nostalgia', on);
+  }
+
   function ensureAudio() {
     var a = document.getElementById('cfm-bg-music');
     if (!a) {
@@ -174,6 +180,7 @@
   function applyAll() {
     applyCursor();
     applyListView();
+    applyNostalgia();
     tryMusic();
   }
 
