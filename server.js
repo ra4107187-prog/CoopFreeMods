@@ -397,18 +397,18 @@ function navbar(sesion, nNotif, extra, opts) {
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   const logoSrc = opts.logo || '/public/logo.png';
   const logoHref = opts.logoHref || '/';
-  return `<script src="/public/cfm-prefs.js?v=3"></script>
+  return `<script src="/public/cfm-prefs.js?v=4"></script>
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
       <div class="nav-links nav-links-main">
-        <a href="/">Inicio</a>
-        <a href="/mods">Mods</a>
-        <a href="/top">⭐ Top 10</a>
-        <a href="/foros">💬 Foros</a>
-        <a href="/como-instalar">📖 Cómo instalar</a>
-        <a href="/config">⚙️ Config</a>
-        ${mid}
+        <a href="/" class="nav-classic">Inicio</a>
+        <a href="/mods" class="nav-modern">Mods</a>
+        <a href="/top" class="nav-modern">⭐ Top 10</a>
+        <a href="/foros" class="nav-modern">💬 Foros</a>
+        <a href="/como-instalar" class="nav-classic">Cómo instalar</a>
+        <a href="/config" class="nav-classic">⚙️ Config</a>
+        <span class="nav-modern">${mid}</span>
         ${extra || ''}
         ${authLinks(sesion, nNotif || 0)}
       </div>
@@ -434,7 +434,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=3';
+          s.src = '/public/cfm-prefs.js?v=4';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -2217,7 +2217,7 @@ app.get('/jugar-sm64', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=3"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=4"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
@@ -2267,6 +2267,14 @@ app.get('/config', async (req, res) => {
           <input type="checkbox" id="optClick" style="width:auto;transform:scale(1.3);">
         </label>
 
+        <label class="config-row" style="border:1px solid rgba(236,72,153,0.35);border-radius:10px;padding:14px;margin-top:12px;background:rgba(236,72,153,0.06);">
+          <span>
+            <b style="color:#f9a8d4;">📼 Modo nostalgia</b><br>
+            <span style="color:#9ca3af;font-size:13px;">Easter egg: vuelve el diseño de la web antigua (menú simple, fondo oscuro, sin secciones nuevas). Desactivalo para volver a la versión actual. <b style="color:#fbbf24;">Config sigue visible</b> para que puedas salir del modo.</span>
+          </span>
+          <input type="checkbox" id="optNostalgia" style="width:auto;transform:scale(1.3);">
+        </label>
+
         <hr style="border:none;border-top:1px solid #2d3139;margin:22px 0;">
         <h3 style="color:white;margin:0 0 8px 0;font-size:16px;">📦 Instalación automática</h3>
         <p style="color:#9ca3af;font-size:13px;margin:0 0 14px 0;line-height:1.45;">
@@ -2311,6 +2319,7 @@ app.get('/config', async (req, res) => {
       var track = document.getElementById('optMusicTrack');
       var lst = document.getElementById('optList');
       var clk = document.getElementById('optClick');
+      var nost = document.getElementById('optNostalgia');
       var auto = document.getElementById('optAutoInstall');
       var extract = document.getElementById('optAutoExtract');
       var pathEl = document.getElementById('autoInstallPath');
@@ -2430,6 +2439,7 @@ app.get('/config', async (req, res) => {
         mus.checked = getPref('cfm_music') === '1';
         lst.checked = getPref('cfm_list_view') === '1';
         clk.checked = getPref('cfm_click') === '1';
+      if (nost) nost.checked = getPref('cfm_nostalgia') === '1';
         auto.checked = getPref('cfm_auto_install') === '1';
         extract.checked = getPref('cfm_auto_extract') !== '0';
         track.value = getPref('cfm_music_track') || '1';
@@ -2442,6 +2452,7 @@ app.get('/config', async (req, res) => {
         setPref('cfm_music_track', track.value || '1');
         setPref('cfm_list_view', lst.checked ? '1' : '0');
         setPref('cfm_click', clk.checked ? '1' : '0');
+        if (nost) setPref('cfm_nostalgia', nost.checked ? '1' : '0');
         setPref('cfm_auto_install', auto.checked ? '1' : '0');
         setPref('cfm_auto_extract', extract.checked ? '1' : '0');
         if (window.cfmPrefs) {
@@ -2461,6 +2472,7 @@ app.get('/config', async (req, res) => {
       track.addEventListener('change', apply);
       lst.addEventListener('change', apply);
       clk.addEventListener('change', apply);
+      if (nost) nost.addEventListener('change', apply);
       auto.addEventListener('change', apply);
       extract.addEventListener('change', apply);
       apply();
