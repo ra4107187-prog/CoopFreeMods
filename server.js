@@ -1218,6 +1218,59 @@ app.get('/mod/:id', async (req, res) => {
     const badgeSemana = (mod.destacado ? '<span class="tag-version" style="background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;border:none;">⭐ MOD DE LA SEMANA</span> ' : '')
       + (isTop1Detail ? '<span class="tag-version" style="background:linear-gradient(135deg,#c084fc,#7c3aed);color:#fff;border:none;">🏆 TOP 1</span> ' : '');
 
+    // Contar mods del autor (para ficha nostalgia)
+    let autorModsCount = 0;
+    try {
+      const { count } = await supabase.from('mods').select('id', { count: 'exact', head: true }).eq('autor', mod.autor);
+      autorModsCount = count || 0;
+    } catch (e) {}
+
+    if (isNostalgiaReq(req)) {
+      const mainImg = (mod.rutasImagenes && mod.rutasImagenes[0])
+        ? `<div class="nostalgia-mod-preview"><img src="${escapeHtml(mod.rutasImagenes[0])}" alt=""></div>`
+        : '';
+      const moreImgs = (mod.rutasImagenes || []).slice(1).map(u => u ? `<div class="nostalgia-mod-preview" style="margin-top:12px;"><img src="${escapeHtml(u)}" alt=""></div>` : '').join('');
+      return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container nostalgia-mod-page">
+        <div class="nostalgia-mod-top">
+          <div class="nostalgia-mod-left">
+            <div class="nostalgia-mod-tags">
+              <span class="tag-version">${escapeHtml(mod.version || '')}</span>
+              <span class="tag-category">${escapeHtml(mod.categoria || '')}</span>
+            </div>
+            <h1 class="nostalgia-mod-title">${escapeHtml(mod.titulo)}</h1>
+            <p class="nostalgia-mod-meta">
+              por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a>
+              &nbsp;·&nbsp; ↓ ${mod.descargas || 0} descarga${(mod.descargas||0)===1?'':'s'}
+              &nbsp;·&nbsp; Publicado el ${escapeHtml(mod.fechaCreacion || '—')}
+              &nbsp;·&nbsp; ${autorModsCount} mod${autorModsCount===1?'':'s'} publicado${autorModsCount===1?'':'s'}
+            </p>
+          </div>
+          <div class="nostalgia-mod-actions">
+            <a href="/download/${mod.id}" class="btn-red nostalgia-dl">↓ Descargar</a>
+            ${bEdit}${bDel}
+          </div>
+        </div>
+        ${mainImg}
+        ${moreImgs}
+        <div class="info-box nostalgia-box" style="margin-top:22px;">
+          <h2>Descripción</h2>
+          <p style="line-height:1.55;color:#e5e7eb;">${escapeHtml(mod.descripcion)}</p>
+        </div>
+        <div class="info-box nostalgia-box" style="margin-top:16px;">
+          <h2>Detalles</h2>
+          <table class="meta-table">
+            <tr><td>Versión:</td><td>${escapeHtml(mod.version)}</td></tr>
+            <tr><td>Categoría:</td><td>${escapeHtml(mod.categoria)}</td></tr>
+            <tr><td>Archivo:</td><td>${escapeHtml(mod.pesoArchivo || '—')}</td></tr>
+          </table>
+        </div>
+        <p class="nostalgia-footer">⭐ Coop Free Mods — la comunidad de mods gratis para SM64 Co-op y SM64 Co-op DX.<br>Todos los mods son de sus autores. Este sitio no está afiliado a Nintendo.</p>
+      </div>
+    </body></html>`);
+    }
+
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
