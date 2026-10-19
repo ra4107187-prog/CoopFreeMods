@@ -334,6 +334,9 @@ function starsHtml(n) {
   for (let i = 1; i <= 5; i++) s += i <= v ? '★' : '☆';
   return s;
 }
+function isNostalgiaReq(req) {
+  try { return String((req.cookies && req.cookies.cfm_nostalgia) || '') === '1'; } catch (e) { return false; }
+}
 async function getTop1ModId() {
   try {
     const { data } = await supabase.from('mods').select('id,descargas').order('descargas', { ascending: false }).limit(1);
@@ -382,22 +385,22 @@ function authLinks(sesion, nNotif) {
   }
   const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
-    <a href="/user/${escapeHtml(sesion.name)}" style="color:white;font-weight:bold;text-decoration:none;font-size:14px;">${escapeHtml(sesion.name)}</a>${modBadge}
+    <a href="/user/${escapeHtml(sesion.name)}" class="user-session-link" style="color:white;font-weight:bold;text-decoration:none;font-size:14px;">${escapeHtml(sesion.name)}</a>${modBadge}
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
 }
 function leftUserLinks(sesion, nNotif) {
   if (!sesion.name) return '';
   const dot = nNotif > 0 ? `<span class="notif-dot"></span>` : '';
-  return `<a href="/mis-mods">Mis mods</a>
-    <a href="/favoritos">Favoritos</a>
-    <a href="/notificaciones" class="notif-bell" title="${nNotif > 0 ? nNotif + ' sin leer' : 'Notificaciones'}">🔔${dot}</a>`;
+  return `<a href="/mis-mods" class="nav-modern">Mis mods</a>
+    <a href="/favoritos" class="nav-modern">Favoritos</a>
+    <a href="/notificaciones" class="notif-bell nav-modern" title="${nNotif > 0 ? nNotif + ' sin leer' : 'Notificaciones'}">🔔${dot}</a>`;
 }
 function navbar(sesion, nNotif, extra, opts) {
   opts = opts || {};
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   const logoSrc = opts.logo || '/public/logo.png';
   const logoHref = opts.logoHref || '/';
-  return `<script src="/public/cfm-prefs.js?v=4"></script>
+  return `<script src="/public/cfm-prefs.js?v=5"></script>
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
@@ -408,20 +411,20 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/foros" class="nav-modern">💬 Foros</a>
         <a href="/como-instalar" class="nav-classic">Cómo instalar</a>
         <a href="/config" class="nav-classic">⚙️ Config</a>
-        <span class="nav-modern">${mid}</span>
+        ${mid}
         ${extra || ''}
         ${authLinks(sesion, nNotif || 0)}
       </div>
     </div>
     <div class="navbar-row navbar-row-sub">
       <div class="nav-links nav-links-sub">
-        <a href="/usuarios">👥 Usuarios</a>
-        <a href="/novedades">📰 Novedades</a>
-        <a href="/cooptube">📺 CoopTube</a>
-        <a href="/ia-mods">🍄 ToadCode</a>
-        <a href="/mensajes">✉️ Mensajes</a>
-        <a href="/stats">📊 Stats</a>
-        <a href="/discord">Discord</a>
+        <a href="/usuarios" class="nav-modern">👥 Usuarios</a>
+        <a href="/novedades" class="nav-modern">📰 Novedades</a>
+        <a href="/cooptube" class="nav-modern">📺 CoopTube</a>
+        <a href="/ia-mods" class="nav-modern">🍄 ToadCode</a>
+        <a href="/mensajes" class="nav-modern">✉️ Mensajes</a>
+        <a href="/stats" class="nav-modern">📊 Stats</a>
+        <a href="/discord" class="nav-modern">Discord</a>
       </div>
     </div>
   </div>
@@ -434,7 +437,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=4';
+          s.src = '/public/cfm-prefs.js?v=5';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -658,6 +661,63 @@ app.get('/', async (req, res) => {
   try {
     const sesion = await getSesion(req);
     const nNotif = await countNotif(sesion.name);
+
+    // Modo nostalgia: Inicio = lista de mods estilo web antigua
+    if (isNostalgiaReq(req)) {
+      const buscarTexto = (req.query.buscar || '').toLowerCase();
+      const buscarCategoria = req.query.categoria || 'Todas';
+      const buscarVersion = req.query.version || 'Todas';
+      const { data, error } = await supabase.from('mods').select('*').order('id', { ascending: false });
+      if (error) throw error;
+      let mods = (data || []).map(mapMod).filter(mod => {
+        const q = buscarTexto;
+        const byText = !q || (mod.titulo || '').toLowerCase().includes(q) || (mod.descripcion || '').toLowerCase().includes(q) || (mod.autor || '').toLowerCase().includes(q);
+        const c = buscarCategoria === 'Todas' || mod.categoria === buscarCategoria;
+        const v = buscarVersion === 'Todas' || mod.version === buscarVersion;
+        return byText && c && v;
+      });
+      const pg = paginateList(mods, req.query.page, 30);
+      const top1Id = await getTop1ModId();
+      return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Inicio | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container nostalgia-home">
+        <div class="nostalgia-toolbar">
+          <a href="/publish" class="btn-red">+ Publicar un mod</a>
+          <a href="/como-instalar" class="btn-gray nostalgia-guide">Guía de Instalación</a>
+        </div>
+        <form action="/" method="GET" class="filter-bar nostalgia-filter">
+          <label class="nf-label">BUSCAR</label>
+          <input type="text" name="buscar" placeholder="Buscar por título, descripción o..." value="${escapeHtml(req.query.buscar || '')}">
+          <label class="nf-label">VERSIÓN</label>
+          <select name="version">
+            <option value="Todas" ${buscarVersion==='Todas'?'selected':''}>Todas</option>
+            <option value="DX + EX" ${buscarVersion==='DX + EX'?'selected':''}>DX + EX</option>
+            <option value="SM64 EX Co-op" ${buscarVersion==='SM64 EX Co-op'?'selected':''}>SM64 EX Co-op</option>
+            <option value="SM64 Co-op DX" ${buscarVersion==='SM64 Co-op DX'?'selected':''}>SM64 Co-op DX</option>
+          </select>
+          <label class="nf-label">CATEGORÍA</label>
+          <select name="categoria">
+            <option value="Todas" ${buscarCategoria==='Todas'?'selected':''}>Todas</option>
+            <option value="Personajes" ${buscarCategoria==='Personajes'?'selected':''}>Personajes</option>
+            <option value="Texturas" ${buscarCategoria==='Texturas'?'selected':''}>Texturas</option>
+            <option value="Jugabilidad" ${buscarCategoria==='Jugabilidad'?'selected':''}>Jugabilidad</option>
+            <option value="Hangouts / Romhack" ${buscarCategoria==='Hangouts / Romhack'?'selected':''}>Hangouts / Romhack</option>
+            <option value="Gamemodes" ${buscarCategoria==='Gamemodes'?'selected':''}>Gamemodes</option>
+            <option value="Movesets" ${buscarCategoria==='Movesets'?'selected':''}>Movesets</option>
+            <option value="Modifiers" ${buscarCategoria==='Modifiers'?'selected':''}>Modifiers</option>
+            <option value="Administrative / Utility" ${buscarCategoria==='Administrative / Utility'?'selected':''}>Administrative / Utility</option>
+            <option value="Resources" ${buscarCategoria==='Resources'?'selected':''}>Resources</option>
+            <option value="Otros" ${buscarCategoria==='Otros'?'selected':''}>Otros</option>
+          </select>
+          <button type="submit" class="btn-blue">Filtrar</button>
+        </form>
+        <p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${pg.total} mods encontrados</p>
+        <div class="grid">${renderModCards(pg.slice, sesion, top1Id)}</div>
+        ${renderPagination('/', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria })}
+      </div>
+    </body></html>`);
+    }
+
     const { data: allMods } = await supabase.from('mods').select('*').order('id', { ascending: false }).limit(100);
     const mods = (allMods || []).map(mapMod);
     const recientes = mods.slice(0, 5);
@@ -2217,7 +2277,7 @@ app.get('/jugar-sm64', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=4"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=5"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
@@ -2455,8 +2515,18 @@ app.get('/config', async (req, res) => {
         if (nost) setPref('cfm_nostalgia', nost.checked ? '1' : '0');
         setPref('cfm_auto_install', auto.checked ? '1' : '0');
         setPref('cfm_auto_extract', extract.checked ? '1' : '0');
+        // Aplicar nostalgia YA (no depender solo del script externo)
+        try {
+          document.documentElement.classList.toggle('cfm-nostalgia', !!(nost && nost.checked));
+          if (document.body) document.body.classList.toggle('cfm-nostalgia', !!(nost && nost.checked));
+        } catch (e) {}
         if (window.cfmPrefs) {
           window.cfmPrefs.applyAll();
+        } else {
+          // si cfm-prefs no cargó, forzar class al menos
+          try {
+            document.documentElement.classList.toggle('cfm-nostalgia', !!(nost && nost.checked));
+          } catch (e2) {}
         }
         // feedback inmediato en esta página
         if (clk.checked) {
