@@ -7,13 +7,6 @@
   if (window.__cfmPrefsLoaded) return;
   window.__cfmPrefsLoaded = true;
 
-  /* early nostalgia */
-  try {
-    var _n = null;
-    try { _n = localStorage.getItem('cfm_nostalgia'); } catch (e) {}
-    if (_n === '1') document.documentElement.classList.add('cfm-nostalgia');
-  } catch (e) {}
-
   var TRACKS = {
     '1': '/public/bg-music.mp3',
     '2': '/public/bg-music-2.mp3',
@@ -52,8 +45,7 @@
   }
 
   function applyCursor() {
-    // En nostalgia: el cursor especial NO funciona
-    var on = isOn('cfm_cursor') && !isOn('cfm_nostalgia');
+    var on = isOn('cfm_cursor');
     document.documentElement.classList.toggle('cfm-sm64-cursor', on);
     if (document.body) document.body.classList.toggle('cfm-sm64-cursor', on);
 
@@ -64,7 +56,6 @@
         style.id = 'cfm-cursor-css';
         document.head.appendChild(style);
       }
-      // CSS inyectado: no depende de styles.js
       style.textContent =
         'html, body, html *, body *, a, button, input, textarea, select, label, summary, .card, .btn-red, .btn-blue, .btn-gray, .btn-like {' +
         'cursor: url("/public/cursor.png") 10 10, url("/public/cursor.png"), auto !important;}';
@@ -74,14 +65,17 @@
   }
 
   function applyListView() {
-    // En nostalgia: vista lista NO aplica
-    document.documentElement.classList.toggle('cfm-list-view', isOn('cfm_list_view') && !isOn('cfm_nostalgia'));
+    document.documentElement.classList.toggle('cfm-list-view', isOn('cfm_list_view'));
   }
 
-  function applyNostalgia() {
-    var on = isOn('cfm_nostalgia');
-    document.documentElement.classList.toggle('cfm-nostalgia', on);
-    if (document.body) document.body.classList.toggle('cfm-nostalgia', on);
+  function applyGrid() {
+    var g = getPref('cfm_grid') || '3';
+    var root = document.documentElement;
+    root.classList.remove('cfm-grid-2', 'cfm-grid-3', 'cfm-grid-4', 'cfm-grid-giant');
+    if (g === '2') root.classList.add('cfm-grid-2');
+    else if (g === '4') root.classList.add('cfm-grid-4');
+    else if (g === 'giant') root.classList.add('cfm-grid-giant');
+    // 3 = default CSS, no class
   }
 
   function ensureAudio() {
@@ -91,23 +85,21 @@
       a.id = 'cfm-bg-music';
       a.loop = true;
       a.preload = 'auto';
-      a.volume = 0.35;
-      (document.body || document.documentElement).appendChild(a);
+      a.style.display = 'none';
+      document.body.appendChild(a);
     }
     var track = getPref('cfm_music_track') || '1';
     var src = TRACKS[track] || TRACKS['1'];
-    var file = src.split('/').pop();
-    var cur = a.getAttribute('src') || a.src || '';
-    if (!cur || cur.indexOf(file) === -1) {
+    if (!a.getAttribute('data-src') || a.getAttribute('data-src') !== src) {
       a.src = src;
+      a.setAttribute('data-src', src);
     }
     return a;
   }
 
   function tryMusic() {
     var a = ensureAudio();
-    // En nostalgia: música de fondo NO funciona
-    var want = isOn('cfm_music') && !isOn('cfm_nostalgia');
+    var want = isOn('cfm_music');
     var path = location.pathname || '';
     var silence = path.indexOf('/cooptube/v/') === 0 || path.indexOf('/jugar-sm64') === 0;
 
@@ -136,7 +128,7 @@
 
   function showMusicBanner() {
     if (document.getElementById('cfm-music-banner')) return;
-    if (!isOn('cfm_music')) return;
+    if (!document.body) return;
     var b = document.createElement('button');
     b.id = 'cfm-music-banner';
     b.type = 'button';
@@ -176,8 +168,7 @@
   }
 
   function onClickSound() {
-    // En nostalgia: sin sonido de click
-    if (!isOn('cfm_click') || isOn('cfm_nostalgia')) return;
+    if (!isOn('cfm_click')) return;
     try {
       var a = new Audio('/public/click.mp3');
       a.volume = 0.45;
@@ -191,14 +182,12 @@
   function applyAll() {
     applyCursor();
     applyListView();
-    applyNostalgia();
+    applyGrid();
     tryMusic();
   }
 
-  // Click sound
   document.addEventListener('click', onClickSound, true);
 
-  // Guardar tiempo de música
   setInterval(function () {
     try {
       var a = document.getElementById('cfm-bg-music');
@@ -206,7 +195,6 @@
     } catch (e) {}
   }, 1000);
 
-  // Boot
   function boot() {
     applyAll();
   }
@@ -220,14 +208,12 @@
     if (!document.hidden) applyAll();
   });
 
-  // API para la página de config
   window.cfmPrefs = {
     get: getPref,
     set: setPref,
     isOn: isOn,
     applyAll: applyAll,
     tryMusic: tryMusic,
-    applyCursor: applyCursor,
-    isNostalgia: function () { return isOn('cfm_nostalgia'); }
+    applyCursor: applyCursor
   };
 })();
