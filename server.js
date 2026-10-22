@@ -464,7 +464,7 @@ function authLinks(sesion, nNotif) {
   }
   const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
-    <a href="/user/${escapeHtml(sesion.name)}" style="color:white;font-weight:bold;text-decoration:none;font-size:14px;">${escapeHtml(sesion.name)}</a>${modBadge}
+    <a href="/user/${escapeHtml(sesion.name)}" style="color:#fbbf24;font-weight:bold;text-decoration:none;font-size:14px;">Hola, ${escapeHtml(sesion.name)}</a>${modBadge}
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
 }
 function leftUserLinks(sesion, nNotif) {
@@ -479,7 +479,7 @@ function navbar(sesion, nNotif, extra, opts) {
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   const logoSrc = opts.logo || '/public/logo.png';
   const logoHref = opts.logoHref || '/';
-  return `<script src="/public/cfm-prefs.js?v=8"></script>
+  return `<script src="/public/cfm-prefs.js?v=9"></script>
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
@@ -520,7 +520,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=8';
+          s.src = '/public/cfm-prefs.js?v=9';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -768,6 +768,35 @@ app.get('/', async (req, res) => {
       videosRec = vlist.slice(0, 5);
       videosPop = [...vlist].sort((a, b) => (b.vistas || 0) - (a.vistas || 0)).slice(0, 5);
     } catch (e) { console.error('videos home', e); }
+
+    let eventosHome = [];
+    try {
+      const { data: evs } = await supabase.from('eventos').select('*').order('fecha_evento', { ascending: true }).limit(20);
+      const now = Date.now();
+      const lista = evs || [];
+      // próximos primero, si no hay, últimos
+      const prox = lista.filter(e => e.fecha_evento && new Date(e.fecha_evento).getTime() >= now);
+      eventosHome = (prox.length ? prox : lista.slice().reverse()).slice(0, 3);
+    } catch (e) { console.error('eventos home', e); }
+
+    let packsHome = [];
+    try {
+      const { data: pks } = await supabase.from('mod_packs').select('*').order('created_at', { ascending: false }).limit(3);
+      packsHome = (pks || []).map(mapPack).filter(Boolean);
+    } catch (e) { console.error('packs home', e); }
+
+    let autoresTop = [];
+    try {
+      const mapA = {};
+      mods.forEach(m => {
+        const a = m.autor || '???';
+        if (!mapA[a]) mapA[a] = { autor: a, mods: 0, descargas: 0 };
+        mapA[a].mods++;
+        mapA[a].descargas += (m.descargas || 0);
+      });
+      autoresTop = Object.values(mapA).sort((a, b) => b.descargas - a.descargas).slice(0, 3);
+    } catch (e) {}
+
     let ultimaNovedad = null;
     try {
       const { data: novs } = await supabase.from('novedades').select('*').order('created_at', { ascending: false }).limit(1);
@@ -913,6 +942,32 @@ app.get('/', async (req, res) => {
               <p style="margin:10px 0 0 0;"><a href="/cooptube" class="btn-gray" style="font-size:12px;">CoopTube →</a></p>
             </div>
           </aside>
+        </div>
+        <div class="home-bottom-extras" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:28px 0 8px;">
+          <div class="home-side-box" style="margin:0;">
+            <h3 style="margin-top:0;">📅 Próximos eventos</h3>
+            <div class="home-list">${(eventosHome || []).map(ev => {
+              const fe = ev.fecha_evento ? new Date(ev.fecha_evento).toLocaleString('es-ES') : '';
+              return `<a href="/eventos" class="home-foro-row"><span class="home-foro-title">${escapeHtml(ev.titulo || '')}</span><span class="home-foro-meta">${escapeHtml(fe)} · @${escapeHtml(ev.autor || '')}</span></a>`;
+            }).join('') || '<p style="color:#9ca3af;font-size:13px;">No hay eventos. <a href="/eventos" style="color:#93c5fd;">Crear uno</a></p>'}</div>
+            <p style="margin:10px 0 0;"><a href="/eventos" class="btn-gray" style="font-size:12px;">Ver eventos →</a></p>
+          </div>
+          <div class="home-side-box" style="margin:0;">
+            <h3 style="margin-top:0;">📦 Packs recientes</h3>
+            <div class="home-list">${(packsHome || []).map(pl => {
+              const n = (pl.modIds || []).length;
+              return `<a href="/pack/${pl.id}" class="home-foro-row"><span class="home-foro-title">${escapeHtml(pl.titulo || '')}</span><span class="home-foro-meta">@${escapeHtml(pl.autor || '')} · ${n} mods</span></a>`;
+            }).join('') || '<p style="color:#9ca3af;font-size:13px;">No hay packs. <a href="/packs" style="color:#93c5fd;">Crear uno</a></p>'}</div>
+            <p style="margin:10px 0 0;"><a href="/packs" class="btn-gray" style="font-size:12px;">Ver packs →</a></p>
+          </div>
+          <div class="home-side-box" style="margin:0;">
+            <h3 style="margin-top:0;">⭐ Top 3 autores</h3>
+            <div class="home-list">${(autoresTop || []).map((r, i) => {
+              const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
+              return `<a href="/user/${escapeHtml(r.autor)}" class="home-foro-row"><span class="home-foro-title">${medal} @${escapeHtml(r.autor)}</span><span class="home-foro-meta">${r.mods} mods · ⬇️ ${r.descargas}</span></a>`;
+            }).join('') || '<p style="color:#9ca3af;font-size:13px;">—</p>'}</div>
+            <p style="margin:10px 0 0;"><a href="/autores" class="btn-gray" style="font-size:12px;">Ver ranking →</a></p>
+          </div>
         </div>
         <div class="home-cta">
           <a href="/mods" class="btn-red">Ver Mods</a>
@@ -2376,7 +2431,7 @@ app.get('/jugar-sm64', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=8"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=9"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
@@ -2427,6 +2482,34 @@ app.get('/config', async (req, res) => {
         </label>
 
         
+
+
+        <hr style="border:none;border-top:1px solid #2d3139;margin:22px 0;">
+        <h3 style="color:white;margin:0 0 10px;font-size:16px;">🔔 Notificaciones</h3>
+        <p style="color:#9ca3af;font-size:13px;margin:0 0 12px;">Elegí qué tipos querés recibir.</p>
+        <label class="config-row"><span><b style="color:white;">Comentarios y respuestas</b></span>
+          <input type="checkbox" id="optNotifCom" style="width:auto;transform:scale(1.3);"></label>
+        <label class="config-row"><span><b style="color:white;">Likes</b></span>
+          <input type="checkbox" id="optNotifLike" style="width:auto;transform:scale(1.3);"></label>
+        <label class="config-row"><span><b style="color:white;">Menciones (@usuario)</b></span>
+          <input type="checkbox" id="optNotifMen" style="width:auto;transform:scale(1.3);"></label>
+        <label class="config-row"><span><b style="color:white;">Novedades / follows / collab</b></span>
+          <input type="checkbox" id="optNotifOtros" style="width:auto;transform:scale(1.3);"></label>
+
+        <hr style="border:none;border-top:1px solid #2d3139;margin:22px 0;">
+        <h3 style="color:white;margin:0 0 10px;font-size:16px;">🃏 Tarjetas de mods</h3>
+        <label class="config-row" style="flex-direction:column;align-items:stretch;">
+          <span><b style="color:white;">Mods por fila</b><br>
+          <span style="color:#9ca3af;font-size:13px;">En escritorio: de 3 a 6 tarjetas por línea (también 2 o gigantes).</span></span>
+          <select id="optGrid" style="width:100%;margin-top:8px;">
+            <option value="3">3 por fila</option>
+            <option value="4">4 por fila</option>
+            <option value="5">5 por fila</option>
+            <option value="6">6 por fila (compacto)</option>
+            <option value="2">2 por fila (grandes)</option>
+            <option value="giant">Tarjetas gigantes</option>
+          </select>
+        </label>
 
         <hr style="border:none;border-top:1px solid #2d3139;margin:22px 0;">
         <h3 style="color:white;margin:0 0 8px 0;font-size:16px;">📦 Instalación automática</h3>
