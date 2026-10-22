@@ -71,11 +71,12 @@
   function applyGrid() {
     var g = getPref('cfm_grid') || '3';
     var root = document.documentElement;
-    root.classList.remove('cfm-grid-2', 'cfm-grid-3', 'cfm-grid-4', 'cfm-grid-giant');
-    if (g === '2') root.classList.add('cfm-grid-2');
-    else if (g === '4') root.classList.add('cfm-grid-4');
-    else if (g === 'giant') root.classList.add('cfm-grid-giant');
-    // 3 = default CSS, no class
+    root.classList.remove('cfm-grid-2', 'cfm-grid-3', 'cfm-grid-4', 'cfm-grid-5', 'cfm-grid-6', 'cfm-grid-giant');
+    if (g === '2' || g === '3' || g === '4' || g === '5' || g === '6') {
+      root.classList.add('cfm-grid-' + g);
+    } else if (g === 'giant') {
+      root.classList.add('cfm-grid-giant');
+    }
   }
 
   function ensureAudio() {
