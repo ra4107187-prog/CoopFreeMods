@@ -114,6 +114,5 @@ Si encontrás un bug, abrí un issue o avisá en Discord.
 - GitHub: [ra4107187-prog/CoopFreeMods](https://github.com/ra4107187-prog/CoopFreeMods)
 
 ¡Gracias por ser parte de la comunidad de SM64 Co-op! 🍄
-R6xBpcR
 
 (los commits no estan bien nombrados, la mayoria solo se llaman a)
