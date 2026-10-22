@@ -778,7 +778,7 @@ app.get('/', async (req, res) => {
       const { data: dest } = await supabase.from('mods').select('*').eq('destacado', true).order('id', { ascending: false }).limit(1);
       if (dest && dest[0]) modSemana = mapMod(dest[0]);
     } catch (e) { /* columna destacado opcional */ }
-    let statsPub = { mods: mods.length, descargas: 0, usuarios: 0, videos: 0, foros: forosRec.length };
+    let statsPub = { mods: mods.length, descargas: 0, usuarios: 0, videos: 0, foros: forosRec.length, packs: 0, eventos: 0 };
     try {
       statsPub.descargas = mods.reduce((s, m) => s + (m.descargas || 0), 0);
       const { count: nu } = await supabase.from('usuarios').select('*', { count: 'exact', head: true });
@@ -787,6 +787,14 @@ app.get('/', async (req, res) => {
       statsPub.videos = nv || 0;
       const { count: nf } = await supabase.from('foro_temas').select('*', { count: 'exact', head: true });
       if (nf != null) statsPub.foros = nf;
+      try {
+        const { count: np } = await supabase.from('mod_packs').select('*', { count: 'exact', head: true });
+        statsPub.packs = np || 0;
+      } catch (e2) {}
+      try {
+        const { count: ne } = await supabase.from('eventos').select('*', { count: 'exact', head: true });
+        statsPub.eventos = ne || 0;
+      } catch (e3) {}
     } catch (e) {}
     const cats = ['Character Select','Dynos','Hangouts / Romhack','Gamemodes','Movesets','Modifiers','Administrative / Utility','Resources','Otros'];
     const catHtml = cats.map(c =>
@@ -874,6 +882,8 @@ app.get('/', async (req, res) => {
                 <div><b style="color:#fff;font-size:18px;">${statsPub.descargas}</b><br>descargas</div>
                 <div><b style="color:#fff;font-size:18px;">${statsPub.usuarios}</b><br>usuarios</div>
                 <div><b style="color:#fff;font-size:18px;">${statsPub.videos}</b><br>videos</div>
+                <div><b style="color:#fff;font-size:18px;">${statsPub.packs || 0}</b><br>packs</div>
+                <div><b style="color:#fff;font-size:18px;">${statsPub.eventos || 0}</b><br>eventos</div>
               </div>
               <p style="margin:10px 0 0;"><a href="/stats" class="btn-gray" style="font-size:12px;">Ver más →</a></p>
             </div>
@@ -3836,7 +3846,7 @@ app.get('/stats', async (req, res) => {
     const { data: allMods } = await supabase.from('mods').select('id,descargas,likes,autor,titulo,categoria');
     const mods = allMods || [];
     const { count: nUsers } = await supabase.from('usuarios').select('*', { count: 'exact', head: true });
-    let nVideos = 0, nForos = 0;
+    let nVideos = 0, nForos = 0, nPacks = 0, nEventos = 0, nNovedades = 0;
     try {
       const v = await supabase.from('videos').select('*', { count: 'exact', head: true });
       nVideos = v.count || 0;
@@ -3845,8 +3855,21 @@ app.get('/stats', async (req, res) => {
       const f = await supabase.from('foro_temas').select('*', { count: 'exact', head: true });
       nForos = f.count || 0;
     } catch (e) {}
+    try {
+      const p = await supabase.from('mod_packs').select('*', { count: 'exact', head: true });
+      nPacks = p.count || 0;
+    } catch (e) {}
+    try {
+      const ev = await supabase.from('eventos').select('*', { count: 'exact', head: true });
+      nEventos = ev.count || 0;
+    } catch (e) {}
+    try {
+      const nv = await supabase.from('novedades').select('*', { count: 'exact', head: true });
+      nNovedades = nv.count || 0;
+    } catch (e) {}
     const totalDesc = mods.reduce((s, m) => s + (m.descargas || 0), 0);
     const totalLikes = mods.reduce((s, m) => s + (m.likes || 0), 0);
+    const nAutores = new Set(mods.map(m => m.autor).filter(Boolean)).size;
     const byCat = {};
     mods.forEach(m => { const c = m.categoria || 'Otros'; byCat[c] = (byCat[c] || 0) + 1; });
     const catRows = Object.entries(byCat).sort((a, b) => b[1] - a[1])
@@ -3862,8 +3885,12 @@ app.get('/stats', async (req, res) => {
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${totalDesc}</div><div style="color:#9ca3af;">Descargas</div></div>
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${totalLikes}</div><div style="color:#9ca3af;">Likes 👍</div></div>
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nUsers || 0}</div><div style="color:#9ca3af;">Usuarios</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nAutores}</div><div style="color:#9ca3af;">Autores</div></div>
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nVideos}</div><div style="color:#9ca3af;">Videos</div></div>
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nForos}</div><div style="color:#9ca3af;">Foros</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nPacks}</div><div style="color:#9ca3af;">Packs</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nEventos}</div><div style="color:#9ca3af;">Eventos</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nNovedades}</div><div style="color:#9ca3af;">Novedades</div></div>
         </div>
         <div class="info-box"><h2>Por categoría</h2>
           <table class="meta-table">${catRows || '<tr><td>Sin datos</td></tr>'}</table>
@@ -4295,7 +4322,10 @@ app.get('/eventos', async (req, res) => {
       </div>`;
     }).join('') || '<p style="color:#9ca3af;">No hay eventos. ¡Creá el primero!</p>';
     const form = sesion.name && !sesion.banneado ? `
-      <div class="form-box" style="margin-bottom:24px;">
+      <div style="margin-bottom:20px;">
+        <button type="button" class="btn-red" id="btnToggleEvento" onclick="var b=document.getElementById('boxNuevoEvento');b.style.display=b.style.display==='none'?'block':'none';this.textContent=b.style.display==='none'?'+ Crear evento':'✕ Cerrar';">+ Crear evento</button>
+      </div>
+      <div class="form-box" id="boxNuevoEvento" style="margin-bottom:24px;display:none;">
         <h2 style="margin-top:0;color:white;">Nuevo evento</h2>
         <form action="/eventos" method="POST">
           <label>Título</label>
@@ -4306,7 +4336,7 @@ app.get('/eventos', async (req, res) => {
           <textarea name="descripcion" rows="3" maxlength="800" placeholder="Dónde, reglas, link de Discord..."></textarea>
           <button type="submit" class="btn-red">Publicar evento</button>
         </form>
-      </div>` : '<p style="color:#9ca3af;"><a href="/login">Entrá</a> para crear eventos.</p>';
+      </div>` : '<p style="color:#9ca3af;margin-bottom:16px;"><a href="/login" class="btn-blue">Entrá</a> para crear eventos.</p>';
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Eventos | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
@@ -4462,7 +4492,10 @@ app.get('/packs', async (req, res) => {
     }).join('') || '<p style="color:#9ca3af;">No hay packs todavía. ¡Creá el primero!</p>';
 
     const form = sesion.name && !sesion.banneado ? `
-      <div class="form-box" style="margin-bottom:24px;">
+      <div style="margin-bottom:20px;">
+        <button type="button" class="btn-red" id="btnTogglePack" onclick="var b=document.getElementById('boxNuevoPack');b.style.display=b.style.display==='none'?'block':'none';this.textContent=b.style.display==='none'?'+ Crear pack':'✕ Cerrar';">+ Crear pack</button>
+      </div>
+      <div class="form-box" id="boxNuevoPack" style="margin-bottom:24px;display:none;">
         <h2 style="margin-top:0;color:white;">Crear pack de mods</h2>
         <p style="color:#9ca3af;font-size:13px;">Podés mezclar <b>tus mods</b> y mods de otras personas (como una playlist). Usá los IDs de cada mod (están en la URL: /mod/<b>ID</b>).</p>
         <form action="/packs" method="POST">
