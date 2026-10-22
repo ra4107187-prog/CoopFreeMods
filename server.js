@@ -58,12 +58,12 @@ const upload = multer({
       if (['.zip', '.7z', '.rar', '.lua'].includes(ext)) return cb(null, true);
       return cb(new Error('Solo .zip, .7z, .rar o .lua'));
     }
-    if (file.fieldname === 'imagenesMod') {
+    if (file.fieldname === 'imagenesMod' || file.fieldname === 'avatar') {
       const ext = path.extname(file.originalname).toLowerCase();
       const okExt = ['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext);
       const okMime = file.mimetype && ['image/png','image/jpeg','image/jpg','image/webp','image/gif'].includes(file.mimetype);
       if (okExt || okMime) return cb(null, true);
-      return cb(new Error('Solo capturas PNG, JPG, JPEG, WebP o GIF'));
+      return cb(new Error('Solo imágenes PNG, JPG, JPEG, WebP o GIF'));
     }
     cb(null, true);
   }
@@ -317,8 +317,38 @@ function mapMod(row) {
     reviews,
     ratingAvg,
     ratingCount: reviews.length,
-    destacado: !!row.destacado
+    destacado: !!row.destacado,
+    colaboradores: normalizeStringArray(row.colaboradores)
   };
+}
+function mapPack(row) {
+  if (!row) return null;
+  let ids = row.mod_ids;
+  if (typeof ids === 'string') {
+    try { ids = JSON.parse(ids); } catch (e) { ids = []; }
+  }
+  if (!Array.isArray(ids)) ids = [];
+  ids = ids.map(n => parseInt(n, 10)).filter(n => !isNaN(n) && n > 0);
+  // unique preserve order
+  const seen = new Set();
+  ids = ids.filter(id => { if (seen.has(id)) return false; seen.add(id); return true; }).slice(0, 50);
+  return {
+    id: row.id,
+    titulo: row.titulo || 'Pack',
+    descripcion: row.descripcion || '',
+    autor: row.autor || '',
+    modIds: ids,
+    createdAt: row.created_at || row.fecha_creacion || '',
+    updatedAt: row.updated_at || ''
+  };
+}
+function parseModIdsInput(str) {
+  return String(str || '')
+    .split(/[,\s]+/)
+    .map(s => parseInt(s.trim(), 10))
+    .filter(n => !isNaN(n) && n > 0)
+    .filter((n, i, a) => a.indexOf(n) === i)
+    .slice(0, 50);
 }
 function parseTagsInput(str) {
   return String(str || '')
@@ -333,9 +363,6 @@ function starsHtml(n) {
   let s = '';
   for (let i = 1; i <= 5; i++) s += i <= v ? '★' : '☆';
   return s;
-}
-function isNostalgiaReq(req) {
-  try { return String((req.cookies && req.cookies.cfm_nostalgia) || '') === '1'; } catch (e) { return false; }
 }
 async function getTop1ModId() {
   try {
@@ -352,7 +379,8 @@ function mapUser(row) {
     descripcion: row.descripcion || '',
     fechaRegistro: formatFecha(row.fecha_registro),
     seguidores: normalizeStringArray(row.seguidores),
-    banneado: !!row.banneado
+    banneado: !!row.banneado,
+    avatarUrl: row.avatar_url || null
   };
 }
 async function uploadToStorage(bucket, filePath, buffer, contentType) {
@@ -362,9 +390,60 @@ async function uploadToStorage(bucket, filePath, buffer, contentType) {
   return data.publicUrl;
 }
 async function crearNotif(usuario, tipo, mensaje, link) {
+  if (!usuario) return;
   try {
+    // Preferencias de notificación del destinatario (columna opcional notif_prefs)
+    try {
+      const { data: u } = await supabase.from('usuarios').select('notif_prefs').eq('usuario', usuario).single();
+      const prefs = (u && u.notif_prefs && typeof u.notif_prefs === 'object') ? u.notif_prefs : {};
+      const map = {
+        comentario: 'comentarios', reply: 'comentarios', like: 'likes',
+        mencion: 'menciones', novedad: 'novedades', follow: 'follows',
+        collab: 'collab', default: 'otros'
+      };
+      const key = map[tipo] || map.default;
+      if (prefs[key] === false || prefs[key] === 0 || prefs[key] === '0') return;
+    } catch (e) { /* columna puede no existir */ }
     await supabase.from('notificaciones').insert({ usuario, tipo, mensaje, link: link || '/', leido: false });
   } catch (e) { console.error('notif', e); }
+}
+function parseMentions(text) {
+  const m = String(text || '').match(/@([a-zA-Z0-9_\-]{2,24})/g) || [];
+  const names = m.map(x => x.slice(1));
+  return [...new Set(names)];
+}
+async function notifyMentions(fromUser, text, link, contextLabel) {
+  const names = parseMentions(text);
+  for (const u of names) {
+    if (!u || u.toLowerCase() === String(fromUser).toLowerCase()) continue;
+    try {
+      const { data } = await supabase.from('usuarios').select('usuario').eq('usuario', u).maybeSingle();
+      if (!data) continue;
+      await crearNotif(data.usuario, 'mencion', `@${fromUser} te mencionó en ${contextLabel}`, link);
+    } catch (e) {}
+  }
+}
+function highlightMentions(text) {
+  return escapeHtml(text).replace(/@([a-zA-Z0-9_\-]{2,24})/g, '<a href="/user/$1" class="author">@$1</a>');
+}
+async function computeLogros(username) {
+  const logros = [];
+  try {
+    const { data: mods } = await supabase.from('mods').select('id,descargas,likes,autor').eq('autor', username);
+    const lista = mods || [];
+    const totalMods = lista.length;
+    const totalDL = lista.reduce((s, m) => s + (m.descargas || 0), 0);
+    const totalLikes = lista.reduce((s, m) => s + (m.likes || 0), 0);
+    const maxLikes = lista.reduce((s, m) => Math.max(s, m.likes || 0), 0);
+    if (totalMods >= 1) logros.push({ id: 'primer_mod', icon: '📦', nombre: 'Primer mod', desc: 'Publicaste tu primer mod' });
+    if (totalMods >= 5) logros.push({ id: 'cinco_mods', icon: '🔥', nombre: 'Productivo', desc: '5 mods publicados' });
+    if (totalMods >= 15) logros.push({ id: 'quince_mods', icon: '🏆', nombre: 'Máquina de mods', desc: '15 mods publicados' });
+    if (totalDL >= 50) logros.push({ id: 'dl50', icon: '⬇️', nombre: '50 descargas', desc: 'Sumaste 50 descargas' });
+    if (totalDL >= 200) logros.push({ id: 'dl200', icon: '🚀', nombre: 'Viral', desc: '200+ descargas totales' });
+    if (maxLikes >= 5) logros.push({ id: 'liked', icon: '👍', nombre: 'Gustado', desc: 'Un mod con 5+ likes' });
+    if (totalLikes >= 25) logros.push({ id: 'beloved', icon: '❤️', nombre: 'Querido', desc: '25+ likes en total' });
+  } catch (e) {}
+  return logros;
 }
 async function countNotif(usuario) {
   if (!usuario) return 0;
@@ -383,34 +462,34 @@ function authLinks(sesion, nNotif) {
     return `<a href="/login" style="color:#ced4da;text-decoration:none;font-size:14px;">Entrar</a>
     <a href="/register" class="btn-red">Registrarse</a>`;
   }
-  const modBadge = sesion.esMod ? `<span class="mod-badge nav-modern">MOD</span>` : '';
+  const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
-    <a href="/user/${escapeHtml(sesion.name)}" class="user-session-link" style="color:white;font-weight:bold;text-decoration:none;font-size:14px;">${escapeHtml(sesion.name)}</a>${modBadge}
+    <a href="/user/${escapeHtml(sesion.name)}" style="color:white;font-weight:bold;text-decoration:none;font-size:14px;">${escapeHtml(sesion.name)}</a>${modBadge}
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
 }
 function leftUserLinks(sesion, nNotif) {
   if (!sesion.name) return '';
   const dot = nNotif > 0 ? `<span class="notif-dot"></span>` : '';
-  return `<a href="/mis-mods" class="nav-modern">Mis mods</a>
-    <a href="/favoritos" class="nav-modern">Favoritos</a>
-    <a href="/notificaciones" class="notif-bell nav-modern" title="${nNotif > 0 ? nNotif + ' sin leer' : 'Notificaciones'}">🔔${dot}</a>`;
+  return `<a href="/mis-mods">Mis mods</a>
+    <a href="/favoritos">Favoritos</a>
+    <a href="/notificaciones" class="notif-bell" title="${nNotif > 0 ? nNotif + ' sin leer' : 'Notificaciones'}">🔔${dot}</a>`;
 }
 function navbar(sesion, nNotif, extra, opts) {
   opts = opts || {};
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   const logoSrc = opts.logo || '/public/logo.png';
   const logoHref = opts.logoHref || '/';
-  return `<script src="/public/cfm-prefs.js?v=6"></script>
+  return `<script src="/public/cfm-prefs.js?v=8"></script>
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
       <div class="nav-links nav-links-main">
-        <a href="/" class="nav-classic">Inicio</a>
-        <a href="/mods" class="nav-modern">Mods</a>
-        <a href="/top" class="nav-modern">⭐ Top 10</a>
-        <a href="/foros" class="nav-modern">💬 Foros</a>
-        <a href="/como-instalar" class="nav-classic">Cómo instalar</a>
-        <a href="/config" class="nav-classic">⚙️ Config</a>
+        <a href="/">Inicio</a>
+        <a href="/mods">Mods</a>
+        <a href="/top">⭐ Top 10</a>
+        <a href="/foros">💬 Foros</a>
+        <a href="/como-instalar">Cómo instalar</a>
+        <a href="/config">⚙️ Config</a>
         ${mid}
         ${extra || ''}
         ${authLinks(sesion, nNotif || 0)}
@@ -418,13 +497,17 @@ function navbar(sesion, nNotif, extra, opts) {
     </div>
     <div class="navbar-row navbar-row-sub">
       <div class="nav-links nav-links-sub">
-        <a href="/usuarios" class="nav-modern">👥 Usuarios</a>
-        <a href="/novedades" class="nav-modern">📰 Novedades</a>
-        <a href="/cooptube" class="nav-modern">📺 CoopTube</a>
-        <a href="/ia-mods" class="nav-modern">🍄 ToadCode</a>
-        <a href="/mensajes" class="nav-modern">✉️ Mensajes</a>
-        <a href="/stats" class="nav-modern">📊 Stats</a>
-        <a href="/discord" class="nav-modern">Discord</a>
+        <a href="/usuarios">👥 Usuarios</a>
+        <a href="/autores">⭐ Autores</a>
+        <a href="/eventos">📅 Eventos</a>
+        <a href="/logros">🏅 Logros</a>
+        <a href="/novedades">📰 Novedades</a>
+        <a href="/packs">📦 Packs</a>
+        <a href="/cooptube">📺 CoopTube</a>
+        <a href="/ia-mods">🍄 ToadCode</a>
+        <a href="/mensajes">✉️ Mensajes</a>
+        <a href="/stats">📊 Stats</a>
+        <a href="/discord">Discord</a>
       </div>
     </div>
   </div>
@@ -437,7 +520,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=6';
+          s.src = '/public/cfm-prefs.js?v=8';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -517,7 +600,6 @@ function navbar(sesion, nNotif, extra, opts) {
           window.__cfmToastT = setTimeout(function(){ el.style.display = 'none'; }, 4500);
         }
         async function cfmAutoInstall(modId, anchor) {
-          if (localStorage.getItem('cfm_nostalgia') === '1') return false;
           if (localStorage.getItem('cfm_auto_install') !== '1') return false;
           if (!window.showDirectoryPicker) return false;
           var dir = await cfmLoadDir();
@@ -580,7 +662,6 @@ function navbar(sesion, nNotif, extra, opts) {
 
         document.addEventListener('click', function(ev) {
           try {
-            if (localStorage.getItem('cfm_nostalgia') === '1') return;
             if (localStorage.getItem('cfm_auto_install') !== '1') return;
             var a = ev.target.closest && ev.target.closest('a[href^="/download/"]');
             if (!a) return;
@@ -663,62 +744,6 @@ app.get('/', async (req, res) => {
   try {
     const sesion = await getSesion(req);
     const nNotif = await countNotif(sesion.name);
-
-    // Modo nostalgia: Inicio = lista de mods estilo web antigua
-    if (isNostalgiaReq(req)) {
-      const buscarTexto = (req.query.buscar || '').toLowerCase();
-      const buscarCategoria = req.query.categoria || 'Todas';
-      const buscarVersion = req.query.version || 'Todas';
-      const { data, error } = await supabase.from('mods').select('*').order('id', { ascending: false });
-      if (error) throw error;
-      let mods = (data || []).map(mapMod).filter(mod => {
-        const q = buscarTexto;
-        const byText = !q || (mod.titulo || '').toLowerCase().includes(q) || (mod.descripcion || '').toLowerCase().includes(q) || (mod.autor || '').toLowerCase().includes(q);
-        const c = buscarCategoria === 'Todas' || mod.categoria === buscarCategoria;
-        const v = buscarVersion === 'Todas' || mod.version === buscarVersion;
-        return byText && c && v;
-      });
-      const pg = paginateList(mods, req.query.page, 30);
-      const top1Id = await getTop1ModId();
-      return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Inicio | Coop Free Mods</title>${estilosCSS}</head><body>
-      ${navbar(sesion, nNotif)}
-      <div class="main-container nostalgia-home">
-        <div class="nostalgia-toolbar">
-          <a href="/publish" class="btn-red">+ Publicar un mod</a>
-          <a href="/como-instalar" class="btn-gray nostalgia-guide">Guía de Instalación</a>
-        </div>
-        <form action="/" method="GET" class="filter-bar nostalgia-filter">
-          <label class="nf-label">BUSCAR</label>
-          <input type="text" name="buscar" placeholder="Buscar por título, descripción o..." value="${escapeHtml(req.query.buscar || '')}">
-          <label class="nf-label">VERSIÓN</label>
-          <select name="version">
-            <option value="Todas" ${buscarVersion==='Todas'?'selected':''}>Todas</option>
-            <option value="DX + EX" ${buscarVersion==='DX + EX'?'selected':''}>DX + EX</option>
-            <option value="SM64 EX Co-op" ${buscarVersion==='SM64 EX Co-op'?'selected':''}>SM64 EX Co-op</option>
-            <option value="SM64 Co-op DX" ${buscarVersion==='SM64 Co-op DX'?'selected':''}>SM64 Co-op DX</option>
-          </select>
-          <label class="nf-label">CATEGORÍA</label>
-          <select name="categoria">
-            <option value="Todas" ${buscarCategoria==='Todas'?'selected':''}>Todas</option>
-            <option value="Personajes" ${buscarCategoria==='Personajes'?'selected':''}>Personajes</option>
-            <option value="Texturas" ${buscarCategoria==='Texturas'?'selected':''}>Texturas</option>
-            <option value="Jugabilidad" ${buscarCategoria==='Jugabilidad'?'selected':''}>Jugabilidad</option>
-            <option value="Hangouts / Romhack" ${buscarCategoria==='Hangouts / Romhack'?'selected':''}>Hangouts / Romhack</option>
-            <option value="Gamemodes" ${buscarCategoria==='Gamemodes'?'selected':''}>Gamemodes</option>
-            <option value="Movesets" ${buscarCategoria==='Movesets'?'selected':''}>Movesets</option>
-            <option value="Modifiers" ${buscarCategoria==='Modifiers'?'selected':''}>Modifiers</option>
-            <option value="Administrative / Utility" ${buscarCategoria==='Administrative / Utility'?'selected':''}>Administrative / Utility</option>
-            <option value="Resources" ${buscarCategoria==='Resources'?'selected':''}>Resources</option>
-            <option value="Otros" ${buscarCategoria==='Otros'?'selected':''}>Otros</option>
-          </select>
-          <button type="submit" class="btn-blue">Filtrar</button>
-          <span class="nostalgia-count">${pg.total} mods encontrados</span>
-        </form>
-        <div class="grid">${renderModCards(pg.slice, sesion, top1Id)}</div>
-        ${renderPagination('/', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria })}
-      </div>
-    </body></html>`);
-    }
 
     const { data: allMods } = await supabase.from('mods').select('*').order('id', { ascending: false }).limit(100);
     const mods = (allMods || []).map(mapMod);
@@ -1174,12 +1199,12 @@ app.get('/mod/:id', async (req, res) => {
         <p style="margin:5px 0 0;font-size:14px;color:#ced4da;">${cleanText(c.texto)}</p>${replies}${replyForm}</div>`;
     }).join('') || '<p style="color:#9ca3af;">No hay comentarios.</p>';
 
-    const canEdit = sesion.name === mod.autor;
+    const canEdit = sesion.name === mod.autor || (sesion.name && (mod.colaboradores || []).includes(sesion.name));
     const canDelete = canEdit || sesion.esMod;
     const bEdit = canEdit ? `<a href="/edit-mod/${mod.id}" class="btn-blue" style="font-size:13px;padding:6px 12px;">✏️ Editar</a>` : '';
     const bDel = canDelete ? `<a href="/delete-mod/${mod.id}" class="btn-delete" style="padding:8px 12px;" onclick="return confirm('¿Eliminar este mod?')">🗑️ Eliminar mod</a>` : '';
     const cajaCom = (sesion.name && !sesion.banneado)
-      ? `<form action="/comment/${mod.id}" method="POST"><textarea name="ctext" placeholder="Escribe un comentario..." rows="2" required minlength="1"></textarea><button type="submit" class="btn-blue">💬 Comentar</button></form>`
+      ? `<form action="/comment/${mod.id}" method="POST"><textarea name="ctext" placeholder="Escribe un comentario... (usá @usuario para mencionar)" rows="2" required minlength="1"></textarea><button type="submit" class="btn-blue">💬 Comentar</button></form>`
       : sesion.banneado ? '<p style="color:#f87171;">Cuenta baneada: no puedes comentar.</p>'
       : '<p><a href="/login" style="color:#ff3333;">Inicia sesión</a> para comentar.</p>';
 
@@ -1220,65 +1245,12 @@ app.get('/mod/:id', async (req, res) => {
     const badgeSemana = (mod.destacado ? '<span class="tag-version" style="background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;border:none;">⭐ MOD DE LA SEMANA</span> ' : '')
       + (isTop1Detail ? '<span class="tag-version" style="background:linear-gradient(135deg,#c084fc,#7c3aed);color:#fff;border:none;">🏆 TOP 1</span> ' : '');
 
-    // Contar mods del autor (para ficha nostalgia)
-    let autorModsCount = 0;
-    try {
-      const { count } = await supabase.from('mods').select('id', { count: 'exact', head: true }).eq('autor', mod.autor);
-      autorModsCount = count || 0;
-    } catch (e) {}
-
-    if (isNostalgiaReq(req)) {
-      const mainImg = (mod.rutasImagenes && mod.rutasImagenes[0])
-        ? `<div class="nostalgia-mod-preview"><img src="${escapeHtml(mod.rutasImagenes[0])}" alt=""></div>`
-        : '';
-      const moreImgs = (mod.rutasImagenes || []).slice(1).map(u => u ? `<div class="nostalgia-mod-preview" style="margin-top:12px;"><img src="${escapeHtml(u)}" alt=""></div>` : '').join('');
-      return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>${estilosCSS}</head><body>
-      ${navbar(sesion, nNotif)}
-      <div class="main-container nostalgia-mod-page">
-        <div class="nostalgia-mod-top">
-          <div class="nostalgia-mod-left">
-            <div class="nostalgia-mod-tags">
-              <span class="tag-version">${escapeHtml(mod.version || '')}</span>
-              <span class="tag-category">${escapeHtml(mod.categoria || '')}</span>
-            </div>
-            <h1 class="nostalgia-mod-title">${escapeHtml(mod.titulo)}</h1>
-            <p class="nostalgia-mod-meta">
-              por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a>
-              &nbsp;·&nbsp; ↓ ${mod.descargas || 0} descarga${(mod.descargas||0)===1?'':'s'}
-              &nbsp;·&nbsp; Publicado el ${escapeHtml(mod.fechaCreacion || '—')}
-              &nbsp;·&nbsp; ${autorModsCount} mod${autorModsCount===1?'':'s'} publicado${autorModsCount===1?'':'s'}
-            </p>
-          </div>
-          <div class="nostalgia-mod-actions">
-            <a href="/download/${mod.id}" class="btn-red nostalgia-dl">↓ Descargar</a>
-            ${bEdit}${bDel}
-          </div>
-        </div>
-        ${mainImg}
-        ${moreImgs}
-        <div class="info-box nostalgia-box" style="margin-top:22px;">
-          <h2>Descripción</h2>
-          <p style="line-height:1.55;color:#e5e7eb;">${escapeHtml(mod.descripcion)}</p>
-        </div>
-        <div class="info-box nostalgia-box" style="margin-top:16px;">
-          <h2>Detalles</h2>
-          <table class="meta-table">
-            <tr><td>Versión:</td><td>${escapeHtml(mod.version)}</td></tr>
-            <tr><td>Categoría:</td><td>${escapeHtml(mod.categoria)}</td></tr>
-            <tr><td>Archivo:</td><td>${escapeHtml(mod.pesoArchivo || '—')}</td></tr>
-          </table>
-        </div>
-        <p class="nostalgia-footer">⭐ Coop Free Mods — la comunidad de mods gratis para SM64 Co-op y SM64 Co-op DX.<br>Todos los mods son de sus autores. Este sitio no está afiliado a Nintendo.</p>
-      </div>
-    </body></html>`);
-    }
-
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
           <div><h1 style="color:white;">${badgeSemana}${escapeHtml(mod.titulo)}</h1>
-            <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></p></div>
+            <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a>${(mod.colaboradores && mod.colaboradores.length) ? ' · Colaboran: ' + mod.colaboradores.map(c => '<a href="/user/' + escapeHtml(c) + '" class="author">@' + escapeHtml(c) + '</a>').join(', ') : ''}</p></div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
             <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:16px;padding:10px 16px;background:#1f2937;border-radius:8px;border:1px solid #374151;">👍 ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
@@ -1365,6 +1337,7 @@ app.post('/reply/:modId/:parentId', async (req, res) => {
   if (data.autor !== sesion.name) {
     await crearNotif(data.autor, 'comentario', `@${sesion.name} comentó en tu mod "${data.titulo}"`, `/mod/${modId}`);
   }
+  await notifyMentions(sesion.name, req.body.ctext || '', '/mod/' + modId, 'una respuesta de un mod');
   res.redirect('/mod/' + modId);
 });
 
@@ -1374,7 +1347,7 @@ app.get('/user/:username', async (req, res) => {
     const nNotif = await countNotif(sesion.name);
     const username = req.params.username;
     let { data: userRow } = await supabase.from('usuarios').select('*').eq('usuario', username).single();
-    const user = userRow ? mapUser(userRow) : { usuario: username, descripcion: 'Usuario', fechaRegistro: '—', seguidores: [], banneado: false };
+    const user = userRow ? mapUser(userRow) : { usuario: username, descripcion: 'Usuario', fechaRegistro: '—', seguidores: [], banneado: false, avatarUrl: null };
     if (!user.seguidores) user.seguidores = [];
     if (!Array.isArray(user.seguidores)) user.seguidores = normalizeStringArray(user.seguidores);
     const { data: modsData } = await supabase.from('mods').select('*').eq('autor', username).order('id', { ascending: false });
@@ -1406,10 +1379,23 @@ app.get('/user/:username', async (req, res) => {
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div class="profile-header">
-          <div>
-            <h1 style="margin:0;color:white;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}</h1>
-            <p style="color:#ced4da;margin:10px 0;">${escapeHtml(user.descripcion)}</p>
-            <p style="color:#9ca3af;font-size:12px;margin:0;">Desde el ${escapeHtml(user.fechaRegistro)} · 👥 ${(user.seguidores||[]).length} seguidores</p>
+          <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;flex:1;">
+            <div class="profile-avatar-wrap">
+              ${user.avatarUrl
+                ? `<img src="${escapeHtml(user.avatarUrl)}" class="profile-avatar" alt="@${escapeHtml(user.usuario)}">`
+                : `<div class="profile-avatar profile-avatar-placeholder">${escapeHtml((user.usuario || '?').charAt(0).toUpperCase())}</div>`}
+            </div>
+            <div>
+              <h1 style="margin:0;color:white;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}</h1>
+              <p style="color:#ced4da;margin:10px 0;">${escapeHtml(user.descripcion)}</p>
+              <p style="color:#9ca3af;font-size:12px;margin:0;">Desde el ${escapeHtml(user.fechaRegistro)} · 👥 ${(user.seguidores||[]).length} seguidores</p>
+              ${sesion.name === user.usuario ? `
+              <form action="/user/${encodeURIComponent(user.usuario)}/avatar" method="POST" enctype="multipart/form-data" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="file" name="avatar" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif" required style="max-width:220px;">
+                <button type="submit" class="btn-blue" style="font-size:12px;padding:6px 12px;">📷 Cambiar foto</button>
+              </form>
+              <p style="color:#6b7280;font-size:11px;margin:6px 0 0;">PNG/JPG/WebP/GIF · máx. ~2 MB recomendado</p>` : ''}
+            </div>
           </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">${bMsg}${bFollow}${bMod}</div>
         </div>
@@ -1434,6 +1420,37 @@ app.get('/unban/:username', async (req, res) => {
   if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Esta acción es solo para moderadores.', sesion, 0);
   await supabase.from('usuarios').update({ banneado: false }).eq('usuario', req.params.username);
   res.redirect('/user/' + req.params.username);
+});
+
+
+app.post('/user/:username/avatar', upload.single('avatar'), async (req, res) => {
+  const sesion = await getSesion(req);
+  const username = req.params.username;
+  if (!sesion.name) return res.redirect('/login');
+  if (sesion.name !== username && !sesion.esMod) {
+    return pageError(res, 403, 'Sin permisos', 'Solo podés cambiar tu propia foto.', sesion, 0);
+  }
+  if (sesion.banneado) return pageError(res, 403, 'Cuenta baneada', 'Tu cuenta está baneada.', sesion, 0);
+  if (!req.file) return res.redirect('/user/' + encodeURIComponent(username));
+  if (req.file.size > 2.5 * 1024 * 1024) {
+    return pageError(res, 400, 'Archivo grande', 'La foto debe pesar menos de 2.5 MB.', sesion, 0);
+  }
+  try {
+    const ext = path.extname(req.file.originalname).toLowerCase() || '.png';
+    const safeExt = ['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext) ? ext : '.png';
+    const filePath = `avatars/${username}-${Date.now()}${safeExt}`;
+    const url = await uploadToStorage('mods-images', filePath, req.file.buffer, req.file.mimetype || 'image/png');
+    const { error } = await supabase.from('usuarios').update({ avatar_url: url }).eq('usuario', username);
+    if (error) {
+      // columna puede no existir aún
+      console.error('avatar update', error);
+      return pageError(res, 500, 'Error', 'No se pudo guardar la foto. ¿Ejecutaste el SQL de avatar_url?', sesion, 0);
+    }
+  } catch (e) {
+    console.error(e);
+    return pageError(res, 500, 'Error', 'No se pudo subir la foto.', sesion, 0);
+  }
+  res.redirect('/user/' + encodeURIComponent(username));
 });
 
 app.get('/follow/:username', async (req, res) => {
@@ -1485,6 +1502,8 @@ app.get('/publish', async (req, res) => {
           <option value="Otros">Otros</option>
         </select>
         <label>Descripción:</label><textarea name="descripcion" required></textarea>
+        <label>Colaboradores (usuarios, separados por coma)</label>
+        <input type="text" name="colaboradores" placeholder="Ej: Ellos, jugador2" maxlength="120">
         <label>Tags libres (opcional, separados por coma):</label>
         <input type="text" name="tags" maxlength="120" placeholder="ej: cs, mario, hangout, ex">
         <label>Archivo (.zip / .lua, máx 10 MB) — opcional si ponés link:</label>
@@ -1547,7 +1566,10 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
       rutas.push(await uploadToStorage('mods-images', p, img.buffer, img.mimetype));
     }
     const tagsArr = parseTagsInput(req.body.tags);
-    const { error } = await supabase.from('mods').insert({
+    const collabs = parseMentions('@' + String(req.body.colaboradores || '').split(/[,\s]+/).filter(Boolean).join(' @')).length
+      ? String(req.body.colaboradores || '').split(/[,\s@]+/).map(s => s.trim()).filter(s => s.length >= 2).filter((x,i,a)=>a.indexOf(x)===i).slice(0, 8)
+      : String(req.body.colaboradores || '').split(/[,\s@]+/).map(s => s.trim()).filter(s => s.length >= 2).filter((x,i,a)=>a.indexOf(x)===i).slice(0, 8);
+    const insertPayload = {
       titulo: req.body.titulo, descripcion: req.body.descripcion, autor: sesion.name,
       version: req.body.version, categoria: req.body.categoria,
       nombre_archivo_real: nombreReal, archivo_path: filePath, rutas_imagenes: rutas,
@@ -1556,8 +1578,18 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
       peso_archivo: peso,
       tags: tagsArr,
       reviews: [],
-      destacado: false
-    });
+      destacado: false,
+      colaboradores: collabs
+    };
+    let { error } = await supabase.from('mods').insert(insertPayload);
+    if (error && /colaboradores/i.test(error.message || '')) {
+      delete insertPayload.colaboradores;
+      ({ error } = await supabase.from('mods').insert(insertPayload));
+    }
+    // Avisar colaboradores
+    for (const c of collabs) {
+      if (c !== sesion.name) await crearNotif(c, 'collab', `@${sesion.name} te añadió como colaborador en "${req.body.titulo}"`, '/mis-mods');
+    }
     if (error) throw error;
     res.redirect('/mods');
   } catch (e) {
@@ -1571,7 +1603,7 @@ app.get('/edit-mod/:id', async (req, res) => {
   if (!sesion.name) return res.redirect('/login');
   const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
   const mod = mapMod(data);
-  if (!mod || mod.autor !== sesion.name) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
+  if (!mod || (mod.autor !== sesion.name && !(mod.colaboradores || []).includes(sesion.name) && !sesion.esMod)) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Editar | Coop Free Mods</title>${estilosCSS}</head><body>
     <div class="form-box"><h2>✏️ Editar mod</h2>
       <form action="/edit-mod/${mod.id}" method="POST" enctype="multipart/form-data">
@@ -1692,6 +1724,7 @@ app.post('/comment/:id', async (req, res) => {
     if (data.autor !== sesion.name) {
       await crearNotif(data.autor, 'comentario', `@${sesion.name} comentó en "${data.titulo}"`, `/mod/${data.id}`);
     }
+    await notifyMentions(sesion.name, req.body.ctext || '', `/mod/${data.id}`, `el mod "${data.titulo}"`);
   }
   res.redirect('/mod/' + req.params.id);
 });
@@ -2156,6 +2189,7 @@ app.post('/foros/responder/:id', async (req, res) => {
       await crearNotif(parent.autor, 'foro', `@${sesion.name} respondió a tu mensaje en "${tema.titulo}"`, `/foros/tema/${id}`);
     }
   }
+  await notifyMentions(sesion.name, contenido, '/foros/tema/' + id, 'un foro');
   res.redirect('/foros/tema/' + id);
 });
 
@@ -2332,23 +2366,13 @@ app.get('/jugar-sm64', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=6"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=8"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
         <h2 style="color:white;margin-top:0;">⚙️ Configuración</h2>
-        <p style="color:#9ca3af;font-size:14px;" class="config-intro-modern">Opciones especiales en <b>tu navegador</b> (no afectan a otros usuarios).</p>
-        <p style="color:#9ca3af;font-size:14px;display:none;" class="config-intro-nostalgia">Modo nostalgia activo. Solo podés activarlo o desactivarlo acá.</p>
+        <p style="color:#9ca3af;font-size:14px;">Opciones especiales en <b>tu navegador</b> (no afectan a otros usuarios).</p>
 
-        <label class="config-row" style="border:1px solid rgba(236,72,153,0.35);border-radius:10px;padding:14px;margin-top:12px;background:rgba(236,72,153,0.06);">
-          <span>
-            <b style="color:#f9a8d4;">📼 Modo nostalgia</b><br>
-            <span style="color:#9ca3af;font-size:13px;">Easter egg: vuelve el diseño de la web antigua (menú simple, fondo oscuro, sin secciones nuevas). Desactivalo para volver a la versión actual. <b style="color:#fbbf24;">Config sigue visible</b> para que puedas salir del modo.</span>
-          </span>
-          <input type="checkbox" id="optNostalgia" style="width:auto;transform:scale(1.3);">
-        </label>
-
-        <div id="configModernOpts">
         <label class="config-row">
           <span>
             <b style="color:white;">Cursor SM64</b><br>
@@ -2428,7 +2452,6 @@ app.get('/config', async (req, res) => {
           <p id="autoInstallMsg" style="color:#9ca3af;font-size:12px;margin:10px 0 0 0;"></p>
         </div>
 
-        </div><!-- /configModernOpts -->
 
         <p style="text-align:center;margin-top:20px;"><a href="/" class="btn-red">Volver al inicio</a></p>
       </div>
@@ -2440,7 +2463,11 @@ app.get('/config', async (req, res) => {
       var track = document.getElementById('optMusicTrack');
       var lst = document.getElementById('optList');
       var clk = document.getElementById('optClick');
-      var nost = document.getElementById('optNostalgia');
+      var nCom = document.getElementById('optNotifCom');
+      var nLike = document.getElementById('optNotifLike');
+      var nMen = document.getElementById('optNotifMen');
+      var nOtros = document.getElementById('optNotifOtros');
+      var grid = document.getElementById('optGrid');
       var auto = document.getElementById('optAutoInstall');
       var extract = document.getElementById('optAutoExtract');
       var pathEl = document.getElementById('autoInstallPath');
@@ -2560,7 +2587,11 @@ app.get('/config', async (req, res) => {
         mus.checked = getPref('cfm_music') === '1';
         lst.checked = getPref('cfm_list_view') === '1';
         clk.checked = getPref('cfm_click') === '1';
-      if (nost) nost.checked = getPref('cfm_nostalgia') === '1';
+      if (nCom) nCom.checked = getPref('cfm_notif_comentarios') !== '0';
+      if (nLike) nLike.checked = getPref('cfm_notif_likes') !== '0';
+      if (nMen) nMen.checked = getPref('cfm_notif_menciones') !== '0';
+      if (nOtros) nOtros.checked = getPref('cfm_notif_otros') !== '0';
+      if (grid) grid.value = getPref('cfm_grid') || '3';
         auto.checked = getPref('cfm_auto_install') === '1';
         extract.checked = getPref('cfm_auto_extract') !== '0';
         track.value = getPref('cfm_music_track') || '1';
@@ -2573,30 +2604,30 @@ app.get('/config', async (req, res) => {
         setPref('cfm_music_track', track.value || '1');
         setPref('cfm_list_view', lst.checked ? '1' : '0');
         setPref('cfm_click', clk.checked ? '1' : '0');
-        if (nost) setPref('cfm_nostalgia', nost.checked ? '1' : '0');
+        if (nCom) setPref('cfm_notif_comentarios', nCom.checked ? '1' : '0');
+        if (nLike) setPref('cfm_notif_likes', nLike.checked ? '1' : '0');
+        if (nMen) setPref('cfm_notif_menciones', nMen.checked ? '1' : '0');
+        if (nOtros) setPref('cfm_notif_otros', nOtros.checked ? '1' : '0');
+        if (grid) setPref('cfm_grid', grid.value || '3');
+        // Intentar guardar prefs de notif en la cuenta (columna opcional)
+        try {
+          fetch('/api/notif-prefs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              comentarios: !nCom || nCom.checked,
+              likes: !nLike || nLike.checked,
+              menciones: !nMen || nMen.checked,
+              novedades: !nOtros || nOtros.checked,
+              follows: !nOtros || nOtros.checked,
+              collab: !nOtros || nOtros.checked,
+              otros: !nOtros || nOtros.checked
+            })
+          }).catch(function(){});
+        } catch (e) {}
         setPref('cfm_auto_install', auto.checked ? '1' : '0');
         setPref('cfm_auto_extract', extract.checked ? '1' : '0');
-        // Aplicar nostalgia YA (no depender solo del script externo)
-        try {
-          document.documentElement.classList.toggle('cfm-nostalgia', !!(nost && nost.checked));
-          if (document.body) document.body.classList.toggle('cfm-nostalgia', !!(nost && nost.checked));
-        } catch (e) {}
-        if (window.cfmPrefs) {
-          window.cfmPrefs.applyAll();
-        } else {
-          try {
-            document.documentElement.classList.toggle('cfm-nostalgia', !!(nost && nost.checked));
-          } catch (e2) {}
-        }
-        // Si se activa nostalgia, cortar música al toque
-        if (nost && nost.checked) {
-          try {
-            var ma = document.getElementById('cfm-bg-music');
-            if (ma) ma.pause();
-            var ban = document.getElementById('cfm-music-banner');
-            if (ban) ban.remove();
-          } catch (e3) {}
-        }
         // feedback inmediato en esta página
         if (clk.checked) {
           try {
@@ -2611,7 +2642,11 @@ app.get('/config', async (req, res) => {
       track.addEventListener('change', apply);
       lst.addEventListener('change', apply);
       clk.addEventListener('change', apply);
-      if (nost) nost.addEventListener('change', apply);
+      if (nCom) nCom.addEventListener('change', apply);
+      if (nLike) nLike.addEventListener('change', apply);
+      if (nMen) nMen.addEventListener('change', apply);
+      if (nOtros) nOtros.addEventListener('change', apply);
+      if (grid) grid.addEventListener('change', apply);
       auto.addEventListener('change', apply);
       extract.addEventListener('change', apply);
       apply();
@@ -4234,6 +4269,346 @@ app.get('/cooptube/playlist-borrar/:id', async (req, res) => {
   }
   await supabase.from('playlists').delete().eq('id', id);
   res.redirect('/cooptube/playlists');
+});
+
+
+
+// ---------- PACKS DE MODS ----------
+
+// ---------- EVENTOS ----------
+app.get('/eventos', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  try {
+    const { data, error } = await supabase.from('eventos').select('*').order('fecha_evento', { ascending: true }).limit(50);
+    if (error) throw error;
+    const now = Date.now();
+    const cards = (data || []).map(ev => {
+      const fe = ev.fecha_evento ? new Date(ev.fecha_evento) : null;
+      const past = fe && fe.getTime() < now;
+      return `<div class="card" style="padding:16px;opacity:${past ? '0.65' : '1'};">
+        <h3 style="color:white;margin:0 0 6px;">📅 ${escapeHtml(ev.titulo)}</h3>
+        <p style="color:#fbbf24;font-size:13px;margin:0 0 8px;">${fe ? fe.toLocaleString('es-ES') : 'Fecha a confirmar'}${past ? ' · (pasado)' : ''}</p>
+        <p style="color:#ced4da;font-size:14px;margin:0 0 8px;">${escapeHtml((ev.descripcion || '').slice(0, 280))}</p>
+        <p style="color:#9ca3af;font-size:12px;margin:0;">por @${escapeHtml(ev.autor || '')}</p>
+        ${(sesion.esMod || (sesion.name && sesion.name === ev.autor)) ? `<p style="margin:10px 0 0;"><a href="/eventos/borrar/${ev.id}" class="btn-delete" onclick="return confirm('¿Borrar evento?')">Borrar</a></p>` : ''}
+      </div>`;
+    }).join('') || '<p style="color:#9ca3af;">No hay eventos. ¡Creá el primero!</p>';
+    const form = sesion.name && !sesion.banneado ? `
+      <div class="form-box" style="margin-bottom:24px;">
+        <h2 style="margin-top:0;color:white;">Nuevo evento</h2>
+        <form action="/eventos" method="POST">
+          <label>Título</label>
+          <input type="text" name="titulo" required maxlength="100" placeholder="Torneo de hangouts">
+          <label>Fecha y hora</label>
+          <input type="datetime-local" name="fecha_evento" required>
+          <label>Descripción</label>
+          <textarea name="descripcion" rows="3" maxlength="800" placeholder="Dónde, reglas, link de Discord..."></textarea>
+          <button type="submit" class="btn-red">Publicar evento</button>
+        </form>
+      </div>` : '<p style="color:#9ca3af;"><a href="/login">Entrá</a> para crear eventos.</p>';
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Eventos | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <h1 style="color:white;">📅 Eventos</h1>
+        <p style="color:#9ca3af;">Torneos, noches de hangout y quedadas de la comunidad.</p>
+        ${form}
+        <div class="grid">${cards}</div>
+      </div></body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', '¿Creaste la tabla eventos? Ejecutá supabase-eventos-logros.sql', sesion, nNotif);
+  }
+});
+
+app.post('/eventos', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  if (!rateLimit('evento-' + sesion.name, 8000)) return res.redirect('/eventos');
+  const titulo = cleanText(req.body.titulo || '').slice(0, 100);
+  const descripcion = cleanText(req.body.descripcion || '').slice(0, 800);
+  const fecha = req.body.fecha_evento ? new Date(req.body.fecha_evento).toISOString() : null;
+  if (!titulo || !fecha) return res.redirect('/eventos');
+  try {
+    await supabase.from('eventos').insert({ titulo, descripcion, fecha_evento: fecha, autor: sesion.name });
+  } catch (e) { console.error(e); }
+  res.redirect('/eventos');
+});
+
+app.get('/eventos/borrar/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  const { data } = await supabase.from('eventos').select('autor').eq('id', id).single();
+  if (!data) return res.redirect('/eventos');
+  if (data.autor !== sesion.name && !sesion.esMod) return pageError(res, 403, 'Sin permisos', 'No podés borrar este evento.', sesion, 0);
+  await supabase.from('eventos').delete().eq('id', id);
+  res.redirect('/eventos');
+});
+
+app.get('/autores', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  try {
+    const { data } = await supabase.from('mods').select('autor,descargas,likes');
+    const map = {};
+    (data || []).forEach(m => {
+      const a = m.autor || '???';
+      if (!map[a]) map[a] = { autor: a, mods: 0, descargas: 0, likes: 0 };
+      map[a].mods++;
+      map[a].descargas += (m.descargas || 0);
+      map[a].likes += (m.likes || 0);
+    });
+    const ranking = Object.values(map).sort((a, b) => b.descargas - a.descargas || b.likes - a.likes).slice(0, 40);
+    const cards = ranking.map((r, i) => {
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : ('#' + (i + 1));
+      return `<div class="card" style="padding:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+          <div>
+            <div style="color:#fbbf24;font-weight:800;font-size:13px;">${medal}</div>
+            <a href="/user/${escapeHtml(r.autor)}" class="author" style="font-size:17px;font-weight:800;">@${escapeHtml(r.autor)}</a>
+            <div style="color:#9ca3af;font-size:13px;margin-top:4px;">${r.mods} mods · ⬇️ ${r.descargas} · 👍 ${r.likes}</div>
+          </div>
+          <a href="/user/${escapeHtml(r.autor)}" class="btn-blue" style="font-size:12px;padding:6px 10px;">Ver perfil</a>
+        </div>
+      </div>`;
+    }).join('') || '<p style="color:#9ca3af;">Aún no hay autores.</p>';
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Autores destacados | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <h1 style="color:white;">⭐ Autores destacados</h1>
+        <p style="color:#9ca3af;">Ranking por descargas totales de sus mods.</p>
+        <div class="grid">${cards}</div>
+      </div></body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo cargar el ranking.', sesion, nNotif);
+  }
+});
+
+app.get('/logros', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const catalog = [
+    { id: 'primer_mod', icon: '📦', nombre: 'Primer mod', desc: 'Publicá tu primer mod' },
+    { id: 'cinco_mods', icon: '🔥', nombre: 'Productivo', desc: '5 mods publicados' },
+    { id: 'quince_mods', icon: '🏆', nombre: 'Máquina de mods', desc: '15 mods publicados' },
+    { id: 'dl50', icon: '⬇️', nombre: '50 descargas', desc: 'Sumá 50 descargas' },
+    { id: 'dl200', icon: '🚀', nombre: 'Viral', desc: '200+ descargas totales' },
+    { id: 'liked', icon: '👍', nombre: 'Gustado', desc: 'Un mod con 5+ likes' },
+    { id: 'beloved', icon: '❤️', nombre: 'Querido', desc: '25+ likes en total' }
+  ];
+  let unlocked = new Set();
+  if (sesion.name) {
+    const mine = await computeLogros(sesion.name);
+    unlocked = new Set(mine.map(l => l.id));
+  }
+  const cards = catalog.map(l => {
+    const on = unlocked.has(l.id);
+    return `<div class="card" style="padding:16px;opacity:${on ? '1' : '0.45'};border:${on ? '1px solid #fbbf24' : '1px solid #2d3139'};">
+      <div style="font-size:28px;">${l.icon}</div>
+      <h3 style="color:white;margin:8px 0 4px;">${escapeHtml(l.nombre)}</h3>
+      <p style="color:#9ca3af;font-size:13px;margin:0;">${escapeHtml(l.desc)}</p>
+      <p style="margin:8px 0 0;font-size:12px;color:${on ? '#86efac' : '#6b7280'};">${on ? '✓ Desbloqueado' : 'Bloqueado'}</p>
+    </div>`;
+  }).join('');
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Logros | Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container">
+      <h1 style="color:white;">🏅 Logros</h1>
+      <p style="color:#9ca3af;">${sesion.name ? 'Tus logros se calculan según tus mods publicados.' : '<a href="/login">Entrá</a> para ver tus logros.'}</p>
+      <div class="grid">${cards}</div>
+    </div></body></html>`);
+});
+
+app.post('/api/notif-prefs', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.status(401).json({ ok: false });
+  const body = req.body || {};
+  const prefs = {
+    comentarios: body.comentarios !== false,
+    likes: body.likes !== false,
+    menciones: body.menciones !== false,
+    novedades: body.novedades !== false,
+    follows: body.follows !== false,
+    collab: body.collab !== false,
+    otros: body.otros !== false
+  };
+  try {
+    const { error } = await supabase.from('usuarios').update({ notif_prefs: prefs }).eq('usuario', sesion.name);
+    if (error) return res.json({ ok: false, note: error.message });
+  } catch (e) {
+    return res.json({ ok: false });
+  }
+  res.json({ ok: true });
+});
+
+app.get('/packs', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  try {
+    const { data, error } = await supabase.from('mod_packs').select('*').order('created_at', { ascending: false }).limit(100);
+    if (error) throw error;
+    const packs = (data || []).map(mapPack).filter(Boolean);
+    const cards = packs.map(pl => {
+      const n = pl.modIds.length;
+      return `<div class="card" style="padding:0;">
+        <div class="card-content" style="padding:16px;">
+          <h3 style="color:white;margin:0 0 8px;"><a href="/pack/${pl.id}" style="color:white;text-decoration:none;">📦 ${escapeHtml(pl.titulo)}</a></h3>
+          <p style="color:#9ca3af;font-size:13px;margin:0 0 6px;">${escapeHtml((pl.descripcion || '').slice(0, 120))}${(pl.descripcion || '').length > 120 ? '…' : ''}</p>
+          <p style="color:#9ca3af;font-size:13px;margin:0;">por <a href="/user/${escapeHtml(pl.autor)}" class="author">@${escapeHtml(pl.autor)}</a> · ${n} mod${n === 1 ? '' : 's'}</p>
+        </div>
+      </div>`;
+    }).join('') || '<p style="color:#9ca3af;">No hay packs todavía. ¡Creá el primero!</p>';
+
+    const form = sesion.name && !sesion.banneado ? `
+      <div class="form-box" style="margin-bottom:24px;">
+        <h2 style="margin-top:0;color:white;">Crear pack de mods</h2>
+        <p style="color:#9ca3af;font-size:13px;">Podés mezclar <b>tus mods</b> y mods de otras personas (como una playlist). Usá los IDs de cada mod (están en la URL: /mod/<b>ID</b>).</p>
+        <form action="/packs" method="POST">
+          <label>Título del pack</label>
+          <input type="text" name="titulo" required maxlength="80" placeholder="Ej: Pack hangouts chill">
+          <label>Descripción (opcional)</label>
+          <textarea name="descripcion" rows="3" maxlength="500" placeholder="Qué incluye y para qué sirve..."></textarea>
+          <label>IDs de mods (separados por coma)</label>
+          <input type="text" name="mod_ids" placeholder="12, 5, 33, 8" required>
+          <button type="submit" class="btn-red">Crear pack</button>
+        </form>
+      </div>` : '<p style="color:#9ca3af;margin-bottom:20px;"><a href="/login" class="btn-blue">Entrá</a> para crear packs.</p>';
+
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Packs de mods | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <h1 style="color:white;margin-top:0;">📦 Packs de mods</h1>
+        <p style="color:#9ca3af;">Colecciones de mods armadas por la comunidad — tus mods o los de otros, en un solo lugar.</p>
+        ${form}
+        <div class="grid">${cards}</div>
+      </div>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', '¿Creaste la tabla <code>mod_packs</code> en Supabase? Mirá el archivo supabase-packs.sql.', sesion, nNotif);
+  }
+});
+
+app.post('/packs', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  if (!rateLimit('pack-create-' + sesion.name, 5000)) return res.redirect('/packs');
+  const titulo = cleanText(req.body.titulo || '').slice(0, 80);
+  const descripcion = cleanText(req.body.descripcion || '').slice(0, 500);
+  let modIds = parseModIdsInput(req.body.mod_ids || '');
+  if (!titulo || !modIds.length) return res.redirect('/packs');
+  // Validar que existan
+  try {
+    const { data: found } = await supabase.from('mods').select('id').in('id', modIds);
+    const ok = new Set((found || []).map(r => r.id));
+    modIds = modIds.filter(id => ok.has(id));
+    if (!modIds.length) return pageError(res, 400, 'IDs inválidos', 'Ninguno de esos IDs de mod existe.', sesion, 0);
+    const { data, error } = await supabase.from('mod_packs').insert({
+      titulo,
+      descripcion,
+      autor: sesion.name,
+      mod_ids: modIds
+    }).select('id').single();
+    if (error) throw error;
+    res.redirect('/pack/' + data.id);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo crear el pack. ¿Existe la tabla mod_packs?', sesion, 0);
+  }
+});
+
+app.get('/pack/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { data: row, error } = await supabase.from('mod_packs').select('*').eq('id', id).single();
+    if (error || !row) return pageError(res, 404, 'Pack no encontrado', 'Ese pack no existe.', sesion, nNotif);
+    const pack = mapPack(row);
+    let mods = [];
+    if (pack.modIds.length) {
+      const { data: rows } = await supabase.from('mods').select('*').in('id', pack.modIds);
+      const byId = {};
+      (rows || []).forEach(r => { byId[r.id] = mapMod(r); });
+      mods = pack.modIds.map(mid => byId[mid]).filter(Boolean);
+    }
+    const top1Id = await getTop1ModId();
+    const canEdit = sesion.name && (sesion.name === pack.autor || sesion.esMod);
+    const editBox = canEdit ? `
+      <div class="form-box" style="margin-top:24px;">
+        <h2 style="margin-top:0;color:white;">Editar pack</h2>
+        <form action="/pack/${pack.id}/editar" method="POST">
+          <label>Título</label>
+          <input type="text" name="titulo" required maxlength="80" value="${escapeHtml(pack.titulo)}">
+          <label>Descripción</label>
+          <textarea name="descripcion" rows="3" maxlength="500">${escapeHtml(pack.descripcion)}</textarea>
+          <label>IDs de mods (coma)</label>
+          <input type="text" name="mod_ids" value="${pack.modIds.join(', ')}" required>
+          <button type="submit" class="btn-blue">Guardar cambios</button>
+        </form>
+        <p style="margin-top:14px;"><a href="/pack/${pack.id}/borrar" class="btn-delete" onclick="return confirm('¿Borrar este pack?')">Borrar pack</a></p>
+      </div>` : '';
+
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(pack.titulo)} | Packs</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <p><a href="/packs" class="btn-gray">← Packs</a></p>
+        <h1 style="color:white;margin:8px 0;">📦 ${escapeHtml(pack.titulo)}</h1>
+        <p style="color:#9ca3af;margin:0 0 8px;">por <a href="/user/${escapeHtml(pack.autor)}" class="author">@${escapeHtml(pack.autor)}</a> · ${mods.length} mod${mods.length === 1 ? '' : 's'}</p>
+        ${pack.descripcion ? `<p style="color:#e5e7eb;line-height:1.5;">${escapeHtml(pack.descripcion)}</p>` : ''}
+        <div class="grid" style="margin-top:20px;">${mods.length ? renderModCards(mods, sesion, top1Id) : '<p style="color:#9ca3af;">Este pack no tiene mods válidos.</p>'}</div>
+        ${editBox}
+      </div>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo cargar el pack.', sesion, nNotif);
+  }
+});
+
+app.post('/pack/:id/editar', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  const { data: row } = await supabase.from('mod_packs').select('*').eq('id', id).single();
+  if (!row) return res.redirect('/packs');
+  if (row.autor !== sesion.name && !sesion.esMod) {
+    return pageError(res, 403, 'Sin permisos', 'No podés editar este pack.', sesion, 0);
+  }
+  const titulo = cleanText(req.body.titulo || '').slice(0, 80);
+  const descripcion = cleanText(req.body.descripcion || '').slice(0, 500);
+  let modIds = parseModIdsInput(req.body.mod_ids || '');
+  if (!titulo || !modIds.length) return res.redirect('/pack/' + id);
+  try {
+    const { data: found } = await supabase.from('mods').select('id').in('id', modIds);
+    const ok = new Set((found || []).map(r => r.id));
+    modIds = modIds.filter(mid => ok.has(mid));
+    if (!modIds.length) return pageError(res, 400, 'IDs inválidos', 'Ningún ID válido.', sesion, 0);
+    await supabase.from('mod_packs').update({
+      titulo,
+      descripcion,
+      mod_ids: modIds,
+      updated_at: new Date().toISOString()
+    }).eq('id', id);
+  } catch (e) {
+    console.error(e);
+  }
+  res.redirect('/pack/' + id);
+});
+
+app.get('/pack/:id/borrar', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  const { data } = await supabase.from('mod_packs').select('autor').eq('id', id).single();
+  if (!data) return res.redirect('/packs');
+  if (data.autor !== sesion.name && !sesion.esMod) {
+    return pageError(res, 403, 'Sin permisos', 'No podés borrar este pack.', sesion, 0);
+  }
+  await supabase.from('mod_packs').delete().eq('id', id);
+  res.redirect('/packs');
 });
 
 
