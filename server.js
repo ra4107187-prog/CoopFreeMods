@@ -76,6 +76,52 @@ function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function siteBaseUrl(req) {
+  if (process.env.SITE_URL) return String(process.env.SITE_URL).replace(/\/$/, '');
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return 'https://' + String(process.env.VERCEL_PROJECT_PRODUCTION_URL).replace(/^https?:\/\//, '');
+  }
+  if (process.env.VERCEL_URL) {
+    return 'https://' + String(process.env.VERCEL_URL).replace(/^https?:\/\//, '');
+  }
+  try {
+    const host = (req && req.get && req.get('host')) || 'coop-free-mods.vercel.app';
+    const proto = (req && req.get && req.get('x-forwarded-proto')) || 'https';
+    return proto + '://' + host;
+  } catch (e) {
+    return 'https://coop-free-mods.vercel.app';
+  }
+}
+function absoluteUrl(req, pathOrUrl) {
+  if (!pathOrUrl) return siteBaseUrl(req) + '/public/logo.png';
+  const s = String(pathOrUrl);
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith('//')) return 'https:' + s;
+  const base = siteBaseUrl(req);
+  return base + (s.startsWith('/') ? s : '/' + s);
+}
+/** Meta tags para Discord / WhatsApp / Twitter (Open Graph) */
+function ogMetaTags(req, { title, description, image, path, type }) {
+  const base = siteBaseUrl(req);
+  const url = path ? (path.startsWith('http') ? path : base + path) : base;
+  const desc = String(description || 'Mods gratis para SM64 Co-op DX y EX — Coop Free Mods').replace(/\s+/g, ' ').trim().slice(0, 220);
+  const img = absoluteUrl(req, image || '/public/logo.png');
+  const tit = String(title || 'Coop Free Mods').slice(0, 120);
+  return `<meta name="description" content="${escapeHtml(desc)}">
+<meta property="og:type" content="${escapeHtml(type || 'website')}">
+<meta property="og:site_name" content="Coop Free Mods">
+<meta property="og:title" content="${escapeHtml(tit)}">
+<meta property="og:description" content="${escapeHtml(desc)}">
+<meta property="og:url" content="${escapeHtml(url)}">
+<meta property="og:image" content="${escapeHtml(img)}">
+<meta property="og:image:secure_url" content="${escapeHtml(img)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escapeHtml(tit)}">
+<meta name="twitter:description" content="${escapeHtml(desc)}">
+<meta name="twitter:image" content="${escapeHtml(img)}">`;
+}
+
+
 function isMod(user) { return user === MODERADOR; }
 
 const COOPTUBE_CATS = ['Tutoriales', 'Showcase', 'Gameplay', 'Speedrun', 'Mods', 'Lua / código', 'Noticias', 'Otros'];
@@ -464,7 +510,7 @@ function authLinks(sesion, nNotif) {
   }
   const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
-    <a href="/user/${escapeHtml(sesion.name)}" style="color:#ffffff;font-weight:bold;text-decoration:none;font-size:14px;">Hola, ${escapeHtml(sesion.name)}</a>${modBadge}
+    <a href="/user/${escapeHtml(sesion.name)}" style="color:#fbbf24;font-weight:bold;text-decoration:none;font-size:14px;">Hola, ${escapeHtml(sesion.name)}</a>${modBadge}
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
 }
 function leftUserLinks(sesion, nNotif) {
@@ -879,7 +925,9 @@ app.get('/', async (req, res) => {
         <a href="/novedades" class="btn-blue" style="font-size:12px;padding:6px 10px;">Ver novedades</a>
       </div>`;
     }
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Inicio | Coop Free Mods</title>${estilosCSS}</head><body>
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Inicio | Coop Free Mods</title>
+    ${ogMetaTags(req, { title: 'Coop Free Mods', description: 'Mods gratis para SM64 Co-op DX y EX. Descargá, publicá y compartí con la comunidad.', image: '/public/logo.png', path: '/' })}
+    ${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container home-page">
         <div class="home-grid">
@@ -1310,7 +1358,18 @@ app.get('/mod/:id', async (req, res) => {
     const badgeSemana = (mod.destacado ? '<span class="tag-version" style="background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;border:none;">⭐ MOD DE LA SEMANA</span> ' : '')
       + (isTop1Detail ? '<span class="tag-version" style="background:linear-gradient(135deg,#c084fc,#7c3aed);color:#fff;border:none;">🏆 TOP 1</span> ' : '');
 
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>${estilosCSS}</head><body>
+    const ogImg = (mod.rutasImagenes && mod.rutasImagenes[0]) ? mod.rutasImagenes[0] : '/public/logo.png';
+    const ogDesc = (mod.descripcion || '') + ' — por @' + (mod.autor || '') + ' · ' + (mod.descargas || 0) + ' descargas · ' + (mod.version || '');
+    const ogHead = ogMetaTags(req, {
+      title: mod.titulo + ' | Coop Free Mods',
+      description: ogDesc,
+      image: ogImg,
+      path: '/mod/' + mod.id,
+      type: 'website'
+    });
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>
+    ${ogHead}
+    ${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
@@ -3632,7 +3691,17 @@ app.get('/cooptube/v/:id', async (req, res) => {
       commentForm = '<p style="color:#9ca3af;"><a href="/login" class="btn-blue">Entrar</a> para comentar.</p>';
     }
 
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(v.titulo)} | CoopTube</title>${estilosCSS}
+    const vThumb = v.thumbnail || youtubeThumb(v.youtubeId) || '/public/logo.png';
+    const vOg = ogMetaTags(req, {
+      title: v.titulo + ' | CoopTube',
+      description: (v.descripcion || 'Video en CoopTube') + ' — por @' + (v.autor || ''),
+      image: vThumb,
+      path: '/cooptube/v/' + v.id,
+      type: 'video.other'
+    });
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(v.titulo)} | CoopTube</title>
+    ${vOg}
+    ${estilosCSS}
     <style>
       .ct-layout { display: flex; gap: 20px; align-items: flex-start; max-width: 1100px; margin: 0 auto; }
       .ct-main { flex: 1; min-width: 0; max-width: 720px; }
