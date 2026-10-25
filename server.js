@@ -1819,15 +1819,42 @@ app.get('/edit-mod/:id', async (req, res) => {
   const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
   const mod = mapMod(data);
   if (!mod || !canManageContent(sesion, mod.autor, mod.colaboradores)) return pageError(res, 403, 'Sin permisos', 'No tenés permiso. Si sos moderador, activá Modo super admin en Config ⚙️.', sesion, 0);
+  const nNotif = await countNotif(sesion.name);
+  const cats = ['Character Select','Dynos','Hangouts / Romhack','Gamemodes','Movesets','Modifiers','Administrative / Utility','Resources','Otros'];
+  const vers = ['SM64 Co-op DX','SM64 EX Co-op','DX + EX'];
+  const tagsStr = (mod.tags || []).join(', ');
+  const collabStr = (mod.colaboradores || []).join(', ');
+  const catOpts = cats.map(c => `<option value="${escapeHtml(c)}" ${mod.categoria === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
+  const verOpts = vers.map(v => `<option value="${escapeHtml(v)}" ${mod.version === v ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+  const statsFields = (sesion.superAdmin || sesion.esMod) ? `
+        <hr style="border:none;border-top:1px solid #2d3139;margin:16px 0;">
+        <p style="color:#fbbf24;font-size:13px;margin:0 0 10px;">🛡️ Campos de moderación</p>
+        <label>Descargas:</label><input type="number" name="descargas" min="0" step="1" value="${Number(mod.descargas) || 0}">
+        <label>Likes:</label><input type="number" name="likes" min="0" step="1" value="${Number(mod.likes) || 0}">
+        <label>Fecha (texto libre):</label><input type="text" name="fecha_creacion" value="${escapeHtml(mod.fechaCreacion || '')}" placeholder="ej: 25/10/2026">
+  ` : `
+        <input type="hidden" name="descargas" value="${Number(mod.descargas) || 0}">
+        <input type="hidden" name="likes" value="${Number(mod.likes) || 0}">
+        <input type="hidden" name="fecha_creacion" value="${escapeHtml(mod.fechaCreacion || '')}">
+  `;
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Editar | Coop Free Mods</title>${estilosCSS}</head><body>
-    <div class="form-box"><h2>✏️ Editar mod</h2>
+    ${navbar(sesion, nNotif)}
+    <div class="form-box"><h2>✏️ Editar mod ${sesion.superAdmin ? '<span class="mod-badge" style="background:#7c3aed;">SUPER ADMIN</span>' : ''}</h2>
+      <p style="color:#9ca3af;font-size:13px;">ID #${mod.id} · Autor @${escapeHtml(mod.autor)}</p>
       <form action="/edit-mod/${mod.id}" method="POST" enctype="multipart/form-data">
-        <label>Título:</label><input type="text" name="titulo" value="${escapeHtml(mod.titulo)}" required>
-        <label>Descripción:</label><textarea name="descripcion" required>${escapeHtml(mod.descripcion)}</textarea>
-        <label>Nuevo archivo (opcional):</label><input type="file" name="archivoMod">
-        <label>Notas update:</label><input type="text" name="notasUpdate">
-        <button type="submit" class="btn-blue" style="width:100%;">Guardar</button>
+        <label>Título:</label><input type="text" name="titulo" value="${escapeHtml(mod.titulo)}" required maxlength="120">
+        <label>Descripción:</label><textarea name="descripcion" required rows="5">${escapeHtml(mod.descripcion)}</textarea>
+        <label>Versión del juego:</label><select name="version">${verOpts}</select>
+        <label>Categoría:</label><select name="categoria">${catOpts}</select>
+        <label>Tags (separados por coma):</label><input type="text" name="tags" value="${escapeHtml(tagsStr)}" placeholder="ej: character, hangout">
+        <label>Colaboradores (máx. 4, deben existir, separados por coma):</label>
+        <input type="text" name="colaboradores" value="${escapeHtml(collabStr)}" placeholder="Ej: Ellos, jugador2" maxlength="120">
+        ${statsFields}
+        <label>Nuevo archivo (opcional):</label><input type="file" name="archivoMod" accept=".zip,.7z,.rar,.lua">
+        <label>Notas del update:</label><input type="text" name="notasUpdate" placeholder="Qué cambió en esta versión">
+        <button type="submit" class="btn-blue" style="width:100%;">💾 Guardar cambios</button>
       </form>
+      <p style="text-align:center;margin-top:14px;"><a href="/mod/${mod.id}" class="btn-gray">← Volver al mod</a></p>
     </div></body></html>`);
 });
 
@@ -1837,8 +1864,42 @@ app.post('/edit-mod/:id', upload.fields([{ name: 'archivoMod', maxCount: 1 }]), 
   const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
   const mod = mapMod(data);
   if (!mod || !canManageContent(sesion, mod.autor, mod.colaboradores)) return pageError(res, 403, 'Sin permisos', 'No tenés permiso. Si sos moderador, activá Modo super admin en Config ⚙️.', sesion, 0);
-  const update = { titulo: req.body.titulo, descripcion: req.body.descripcion };
-  if (req.files['archivoMod'] && req.files['archivoMod'][0]) {
+
+  const catsOk = ['Character Select','Dynos','Hangouts / Romhack','Gamemodes','Movesets','Modifiers','Administrative / Utility','Resources','Otros'];
+  const versOk = ['SM64 Co-op DX','SM64 EX Co-op','DX + EX'];
+  const titulo = cleanText(req.body.titulo || '').slice(0, 120);
+  const descripcion = cleanText(req.body.descripcion || '').slice(0, 5000);
+  if (!titulo || !descripcion) return pageError(res, 400, 'Datos incompletos', 'Título y descripción son obligatorios.', sesion, 0);
+  let version = String(req.body.version || mod.version || 'SM64 Co-op DX');
+  if (!versOk.includes(version)) version = mod.version || 'SM64 Co-op DX';
+  let categoria = String(req.body.categoria || mod.categoria || 'Otros');
+  if (!catsOk.includes(categoria)) categoria = mod.categoria || 'Otros';
+  const tagsArr = parseTagsInput(req.body.tags);
+  const collabRes = await resolveCollaborators(req.body.colaboradores, mod.autor);
+  if (!collabRes.ok) {
+    return pageError(res, 400, 'Colaboradores inválidos',
+      'Estos usuarios no existen: <b>' + collabRes.invalid.map(u => '@' + escapeHtml(u)).join(', ') + '</b>',
+      sesion, 0);
+  }
+  const update = {
+    titulo,
+    descripcion,
+    version,
+    categoria,
+    tags: tagsArr,
+    colaboradores: collabRes.collabs
+  };
+  // Stats solo moderador / super admin
+  if (sesion.superAdmin || sesion.esMod) {
+    const d = parseInt(req.body.descargas, 10);
+    const l = parseInt(req.body.likes, 10);
+    if (!Number.isNaN(d) && d >= 0) update.descargas = d;
+    if (!Number.isNaN(l) && l >= 0) update.likes = l;
+    const fecha = cleanText(req.body.fecha_creacion || '').slice(0, 40);
+    if (fecha) update.fecha_creacion = fecha;
+  }
+
+  if (req.files && req.files['archivoMod'] && req.files['archivoMod'][0]) {
     const file = req.files['archivoMod'][0];
     const scan = scanModArchive(file.buffer, file.originalname);
     if (!scan.ok) {
