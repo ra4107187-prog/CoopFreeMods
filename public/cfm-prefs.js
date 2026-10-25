@@ -79,6 +79,12 @@
     }
   }
 
+  function applyBgMove() {
+    var root = document.documentElement;
+    if (isOn('cfm_bg_move')) root.classList.add('cfm-bg-move');
+    else root.classList.remove('cfm-bg-move');
+  }
+
   function ensureAudio() {
     var a = document.getElementById('cfm-bg-music');
     if (!a) {
@@ -184,6 +190,7 @@
     applyCursor();
     applyListView();
     applyGrid();
+    applyBgMove();
     tryMusic();
   }
 
