@@ -435,51 +435,82 @@ async function uploadToStorage(bucket, filePath, buffer, contentType) {
   const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
   return data.publicUrl;
 }
-/** Aviso a Discord al publicar un mod (webhook). Env: DISCORD_WEBHOOK_URL */
+/** Aviso a Discord al publicar un mod. Env: DISCORD_WEBHOOK_URL */
 async function notifyDiscordNewMod(mod, req) {
-  const webhook = String(process.env.DISCORD_WEBHOOK_URL || '').trim();
-  if (!webhook || !webhook.startsWith('https://discord.com/api/webhooks/')) {
-    return; // no configurado
+  const webhook = String(process.env.DISCORD_WEBHOOK_URL || process.env.DISCORD_MODS_WEBHOOK || '').trim();
+  if (!webhook) {
+    console.warn('[discord] Falta DISCORD_WEBHOOK_URL en variables de entorno de Vercel');
+    return { ok: false, reason: 'no_webhook' };
   }
+  if (!/^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\//i.test(webhook)) {
+    console.warn('[discord] Webhook URL inválida');
+    return { ok: false, reason: 'bad_url' };
+  }
+  let base = 'https://coop-free-mods.vercel.app';
   try {
-    const base = (typeof siteBaseUrl === 'function') ? siteBaseUrl(req) : 'https://coop-free-mods.vercel.app';
-    const url = base + '/mod/' + mod.id;
-    const desc = String(mod.descripcion || '').replace(/\s+/g, ' ').trim().slice(0, 280);
-    const img = (mod.rutasImagenes && mod.rutasImagenes[0]) ? mod.rutasImagenes[0] : (base + '/public/logo.png');
-    const tags = Array.isArray(mod.tags) && mod.tags.length ? mod.tags.slice(0, 6).join(', ') : '—';
-    const embed = {
-      title: mod.titulo || 'Nuevo mod',
-      url,
-      description: desc || 'Sin descripción',
-      color: 0xe11d48,
-      fields: [
-        { name: 'Autor', value: '@' + (mod.autor || '?'), inline: true },
-        { name: 'Versión', value: String(mod.version || '—'), inline: true },
-        { name: 'Categoría', value: String(mod.categoria || '—'), inline: true },
-        { name: 'Tags', value: tags, inline: false }
-      ],
-      thumbnail: { url: img },
-      footer: { text: 'Coop Free Mods · Nuevo mod publicado' },
-      timestamp: new Date().toISOString()
-    };
-    const body = {
-      username: 'Coop Free Mods',
-      content: '📦 **Nuevo mod** en la web',
-      embeds: [embed]
-    };
+    if (typeof siteBaseUrl === 'function' && req) {
+      const b = siteBaseUrl(req);
+      if (b && /^https?:\/\//i.test(b)) base = b.replace(/\/$/, '');
+    }
+  } catch (e) {}
+  const url = base + '/mod/' + mod.id;
+  const desc = String(mod.descripcion || '').replace(/\s+/g, ' ').trim().slice(0, 280) || 'Sin descripción';
+  const tags = Array.isArray(mod.tags) && mod.tags.length ? mod.tags.slice(0, 6).join(', ') : '—';
+  let img = null;
+  if (mod.rutasImagenes && mod.rutasImagenes[0] && /^https:\/\//i.test(String(mod.rutasImagenes[0]))) {
+    img = String(mod.rutasImagenes[0]);
+  }
+  const embed = {
+    title: String(mod.titulo || 'Nuevo mod').slice(0, 200),
+    url,
+    description: desc,
+    color: 0xe11d48,
+    fields: [
+      { name: 'Autor', value: '@' + String(mod.autor || '?').slice(0, 40), inline: true },
+      { name: 'Versión', value: String(mod.version || '—').slice(0, 40), inline: true },
+      { name: 'Categoría', value: String(mod.categoria || '—').slice(0, 40), inline: true },
+      { name: 'Tags', value: tags.slice(0, 100), inline: false }
+    ],
+    footer: { text: 'Coop Free Mods' },
+    timestamp: new Date().toISOString()
+  };
+  if (img) embed.thumbnail = { url: img };
+
+  async function post(payload) {
     const r = await fetch(webhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(payload)
     });
-    if (!r.ok) {
-      const txt = await r.text().catch(() => '');
-      console.error('Discord webhook', r.status, txt.slice(0, 200));
+    const txt = await r.text().catch(() => '');
+    return { status: r.status, ok: r.ok, txt: txt.slice(0, 300) };
+  }
+
+  try {
+    let res = await post({
+      username: 'Coop Free Mods',
+      content: '📦 **Nuevo mod:** [' + String(mod.titulo || 'mod').slice(0, 80) + '](' + url + ') por @' + (mod.autor || '?'),
+      embeds: [embed]
+    });
+    // Si Discord rechaza el embed (imagen, etc.), reintentar solo texto
+    if (!res.ok) {
+      console.error('[discord] embed falló', res.status, res.txt);
+      res = await post({
+        username: 'Coop Free Mods',
+        content: '📦 **Nuevo mod en Coop Free Mods**\n**' + String(mod.titulo || 'mod') + '** por @' + (mod.autor || '?') + '\n' + url + '\n' + desc
+      });
     }
+    if (!res.ok) {
+      console.error('[discord] texto falló', res.status, res.txt);
+      return { ok: false, reason: 'http_' + res.status, detail: res.txt };
+    }
+    return { ok: true };
   } catch (e) {
-    console.error('notifyDiscordNewMod', e.message || e);
+    console.error('[discord] error', e.message || e);
+    return { ok: false, reason: 'exception', detail: String(e.message || e) };
   }
 }
+
 async function crearNotif(usuario, tipo, mensaje, link) {
   if (!usuario) return;
   try {
@@ -2700,6 +2731,32 @@ app.get('/jugar-sm64', async (req, res) => {
 
 
 
+
+app.get('/discord-webhook-test', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Solo moderadores pueden probar el webhook.', sesion, 0);
+  const result = await notifyDiscordNewMod({
+    id: 0,
+    titulo: 'Prueba de webhook',
+    descripcion: 'Si ves este mensaje, Discord está bien conectado con Coop Free Mods.',
+    autor: sesion.name || 'mod',
+    version: 'DX + EX',
+    categoria: 'Otros',
+    tags: ['test'],
+    rutasImagenes: []
+  }, req);
+  const nNotif = await countNotif(sesion.name);
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Test Discord</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:640px;">
+      <h1 style="color:white;">Test webhook Discord</h1>
+      <div class="info-box"><pre style="white-space:pre-wrap;color:#ced4da;">${escapeHtml(JSON.stringify(result, null, 2))}</pre>
+      <p style="color:#9ca3af;">Si ok=false y reason=no_webhook → falta DISCORD_WEBHOOK_URL en Vercel y redesplegar.</p>
+      <p><a href="/config" class="btn-gray">← Config</a></p>
+      </div>
+    </div></body></html>`);
+});
+
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
@@ -2804,6 +2861,7 @@ app.get('/config', async (req, res) => {
           <input type="checkbox" id="optSuperAdmin" style="width:auto;transform:scale(1.3);">
         </label>
         <p id="superAdminHint" style="color:#86efac;font-size:12px;display:none;margin:0 0 8px;">✅ Super admin activo — vas a ver botones de editar en contenido ajeno.</p>
+        <p style="margin:10px 0 0;"><a href="/discord-webhook-test" class="btn-blue" style="font-size:12px;padding:6px 12px;">🔔 Probar aviso a Discord</a></p>
         ` : ''}
 
         <hr style="border:none;border-top:1px solid #2d3139;margin:22px 0;">
