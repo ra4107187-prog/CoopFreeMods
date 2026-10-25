@@ -364,7 +364,7 @@ function mapMod(row) {
     ratingAvg,
     ratingCount: reviews.length,
     destacado: !!row.destacado,
-    colaboradores: normalizeStringArray(row.colaboradores)
+    colaboradores: normalizeStringArray(row.colaboradores).map(String).filter(c => /^[A-Za-z0-9_\-]{2,24}$/.test(c))
   };
 }
 function mapPack(row) {
@@ -458,6 +458,35 @@ function parseMentions(text) {
   const names = m.map(x => x.slice(1));
   return [...new Set(names)];
 }
+/** Solo separa por coma o punto y coma (NO por espacios). Máx. 4. */
+function parseCollaborators(raw) {
+  return String(raw || '')
+    .split(/[,;]+/)
+    .map(s => s.replace(/^@+/, '').trim())
+    .filter(s => /^[A-Za-z0-9_\-]{2,24}$/.test(s))
+    .filter((x, i, a) => a.findIndex(y => y.toLowerCase() === x.toLowerCase()) === i)
+    .slice(0, 4);
+}
+/** Verifica que existan en la tabla usuarios. Devuelve { ok, collabs, invalid }. */
+async function resolveCollaborators(raw, autor) {
+  const parsed = parseCollaborators(raw).filter(u => u.toLowerCase() !== String(autor || '').toLowerCase());
+  if (!parsed.length) return { ok: true, collabs: [], invalid: [] };
+  try {
+    const { data } = await supabase.from('usuarios').select('usuario').in('usuario', parsed);
+    const found = new Map((data || []).map(r => [String(r.usuario).toLowerCase(), r.usuario]));
+    const collabs = [];
+    const invalid = [];
+    for (const name of parsed) {
+      const real = found.get(name.toLowerCase());
+      if (real) collabs.push(real);
+      else invalid.push(name);
+    }
+    return { ok: invalid.length === 0, collabs: collabs.slice(0, 4), invalid };
+  } catch (e) {
+    console.error('resolveCollaborators', e);
+    return { ok: false, collabs: [], invalid: parsed };
+  }
+}
 async function notifyMentions(fromUser, text, link, contextLabel) {
   const names = parseMentions(text);
   for (const u of names) {
@@ -498,17 +527,27 @@ async function countNotif(usuario) {
 }
 async function getSesion(req) {
   const name = req.cookies.usuarioSesion || null;
-  if (!name) return { name: null, banneado: false, esMod: false };
+  if (!name) return { name: null, banneado: false, esMod: false, superAdmin: false };
   const { data } = await supabase.from('usuarios').select('usuario,banneado').eq('usuario', name).single();
-  if (!data) return { name: null, banneado: false, esMod: false };
-  return { name: data.usuario, banneado: !!data.banneado, esMod: isMod(data.usuario) };
+  if (!data) return { name: null, banneado: false, esMod: false, superAdmin: false };
+  const esMod = isMod(data.usuario);
+  const superAdmin = !!(esMod && req.cookies && req.cookies.cfm_super_admin === '1');
+  return { name: data.usuario, banneado: !!data.banneado, esMod, superAdmin };
+}
+/** Puede editar contenido ajeno (mod/foro/video) si es autor, collab o super admin activo */
+function canManageContent(sesion, autor, collabs) {
+  if (!sesion || !sesion.name) return false;
+  if (sesion.superAdmin) return true;
+  if (sesion.name === autor) return true;
+  if (Array.isArray(collabs) && collabs.includes(sesion.name)) return true;
+  return false;
 }
 function authLinks(sesion, nNotif) {
   if (!sesion.name) {
     return `<a href="/login" style="color:#ced4da;text-decoration:none;font-size:14px;">Entrar</a>
     <a href="/register" class="btn-red">Registrarse</a>`;
   }
-  const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
+  const modBadge = sesion.esMod ? (sesion.superAdmin ? `<span class="mod-badge" style="background:#7c3aed;">SUPER ADMIN</span>` : `<span class="mod-badge">MOD</span>`) : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
     <a href="/user/${escapeHtml(sesion.name)}" style="color:#ffffff;font-weight:bold;text-decoration:none;font-size:14px;">Hola, ${escapeHtml(sesion.name)}</a>${modBadge}
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
@@ -525,7 +564,7 @@ function navbar(sesion, nNotif, extra, opts) {
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   const logoSrc = opts.logo || '/public/logo.png';
   const logoHref = opts.logoHref || '/';
-  return `<script src="/public/cfm-prefs.js?v=10"></script>
+  return `<script src="/public/cfm-prefs.js?v=11"></script>
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
@@ -566,7 +605,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=10';
+          s.src = '/public/cfm-prefs.js?v=11';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -1356,9 +1395,9 @@ app.get('/mod/:id', async (req, res) => {
         <p style="margin:5px 0 0;font-size:14px;color:#ced4da;">${cleanText(c.texto)}</p>${replies}${replyForm}</div>`;
     }).join('') || '<p style="color:#9ca3af;">No hay comentarios.</p>';
 
-    const canEdit = sesion.name === mod.autor || (sesion.name && (mod.colaboradores || []).includes(sesion.name));
+    const canEdit = canManageContent(sesion, mod.autor, mod.colaboradores);
     const canDelete = canEdit || sesion.esMod;
-    const bEdit = canEdit ? `<a href="/edit-mod/${mod.id}" class="btn-blue" style="font-size:13px;padding:6px 12px;">✏️ Editar</a>` : '';
+    const bEdit = canEdit ? `<a href="/edit-mod/${mod.id}" class="btn-blue" style="font-size:13px;padding:6px 12px;">✏️ Editar${sesion.superAdmin && sesion.name !== mod.autor ? ' (super admin)' : ''}</a>` : '';
     const bDel = canDelete ? `<a href="/delete-mod/${mod.id}" class="btn-delete" style="padding:8px 12px;" onclick="return confirm('¿Eliminar este mod?')">🗑️ Eliminar mod</a>` : '';
     const cajaCom = (sesion.name && !sesion.banneado)
       ? `<form action="/comment/${mod.id}" method="POST"><textarea name="ctext" placeholder="Escribe un comentario... (usá @usuario para mencionar)" rows="2" required minlength="1"></textarea><button type="submit" class="btn-blue">💬 Comentar</button></form>`
@@ -1418,7 +1457,7 @@ app.get('/mod/:id', async (req, res) => {
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
           <div><h1 style="color:white;">${badgeSemana}${escapeHtml(mod.titulo)}</h1>
-            <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a>${(mod.colaboradores && mod.colaboradores.length) ? ' · Colaboran: ' + mod.colaboradores.map(c => '<a href="/user/' + escapeHtml(c) + '" class="author">@' + escapeHtml(c) + '</a>').join(', ') : ''}</p></div>
+            <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a>${(function(){ const cs = (mod.colaboradores||[]).map(String).filter(c => /^[A-Za-z0-9_\-]{2,24}$/.test(c)); return cs.length ? ' · Colaboran: ' + cs.map(c => '<a href="/user/' + escapeHtml(c) + '" class="author">@' + escapeHtml(c) + '</a>').join(', ') : ''; })()}</p></div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
             <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:16px;padding:10px 16px;background:#1f2937;border-radius:8px;border:1px solid #374151;">👍 ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
@@ -1671,7 +1710,9 @@ app.get('/publish', async (req, res) => {
         </select>
         <label>Descripción:</label><textarea name="descripcion" required></textarea>
         <label>Colaboradores (usuarios, separados por coma)</label>
+        <label style="color:#9ca3af;font-size:12px;font-weight:normal;">Colaboradores (opcional, máx. 4 — deben existir en la web)</label>
         <input type="text" name="colaboradores" placeholder="Ej: Ellos, jugador2" maxlength="120">
+        <p style="color:#6b7280;font-size:12px;margin:4px 0 12px;">Solo usuarios registrados. Separados por coma. No te pongas a vos mismo.</p>
         <label>Tags libres (opcional, separados por coma):</label>
         <input type="text" name="tags" maxlength="120" placeholder="ej: cs, mario, hangout, ex">
         <label>Archivo (.zip / .lua, máx 10 MB) — opcional si ponés link:</label>
@@ -1734,9 +1775,15 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
       rutas.push(await uploadToStorage('mods-images', p, img.buffer, img.mimetype));
     }
     const tagsArr = parseTagsInput(req.body.tags);
-    const collabs = parseMentions('@' + String(req.body.colaboradores || '').split(/[,\s]+/).filter(Boolean).join(' @')).length
-      ? String(req.body.colaboradores || '').split(/[,\s@]+/).map(s => s.trim()).filter(s => s.length >= 2).filter((x,i,a)=>a.indexOf(x)===i).slice(0, 8)
-      : String(req.body.colaboradores || '').split(/[,\s@]+/).map(s => s.trim()).filter(s => s.length >= 2).filter((x,i,a)=>a.indexOf(x)===i).slice(0, 8);
+    const collabRes = await resolveCollaborators(req.body.colaboradores, sesion.name);
+    if (!collabRes.ok) {
+      return pageError(res, 400, 'Colaboradores inválidos',
+        'Estos usuarios no existen (máx. 4, separados por coma): <b>' +
+        collabRes.invalid.map(u => '@' + escapeHtml(u)).join(', ') +
+        '</b><br><br>Usá nombres de cuentas registradas en Coop Free Mods.',
+        sesion, 0);
+    }
+    const collabs = collabRes.collabs;
     const insertPayload = {
       titulo: req.body.titulo, descripcion: req.body.descripcion, autor: sesion.name,
       version: req.body.version, categoria: req.body.categoria,
@@ -1771,7 +1818,7 @@ app.get('/edit-mod/:id', async (req, res) => {
   if (!sesion.name) return res.redirect('/login');
   const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
   const mod = mapMod(data);
-  if (!mod || (mod.autor !== sesion.name && !(mod.colaboradores || []).includes(sesion.name) && !sesion.esMod)) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
+  if (!mod || !canManageContent(sesion, mod.autor, mod.colaboradores)) return pageError(res, 403, 'Sin permisos', 'No tenés permiso. Si sos moderador, activá Modo super admin en Config ⚙️.', sesion, 0);
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Editar | Coop Free Mods</title>${estilosCSS}</head><body>
     <div class="form-box"><h2>✏️ Editar mod</h2>
       <form action="/edit-mod/${mod.id}" method="POST" enctype="multipart/form-data">
@@ -1789,7 +1836,7 @@ app.post('/edit-mod/:id', upload.fields([{ name: 'archivoMod', maxCount: 1 }]), 
   if (!sesion.name) return res.redirect('/login');
   const { data } = await supabase.from('mods').select('*').eq('id', parseInt(req.params.id)).single();
   const mod = mapMod(data);
-  if (!mod || mod.autor !== sesion.name) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
+  if (!mod || !canManageContent(sesion, mod.autor, mod.colaboradores)) return pageError(res, 403, 'Sin permisos', 'No tenés permiso. Si sos moderador, activá Modo super admin en Config ⚙️.', sesion, 0);
   const update = { titulo: req.body.titulo, descripcion: req.body.descripcion };
   if (req.files['archivoMod'] && req.files['archivoMod'][0]) {
     const file = req.files['archivoMod'][0];
@@ -2367,7 +2414,7 @@ app.get('/foros/borrar-tema/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   const { data: tema } = await supabase.from('foro_temas').select('*').eq('id', id).single();
   if (!tema) return res.redirect('/foros');
-  if (tema.autor !== sesion.name && !sesion.esMod) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
+  if (!canManageContent(sesion, tema.autor) && !sesion.esMod) return pageError(res, 403, 'Sin permisos', 'No tenés permiso para hacer eso.', sesion, 0);
   await supabase.from('foro_respuestas').delete().eq('tema_id', id);
   await supabase.from('foro_temas').delete().eq('id', id);
   res.redirect('/foros');
@@ -2534,7 +2581,7 @@ app.get('/jugar-sm64', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=10"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=11"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
@@ -2622,6 +2669,21 @@ app.get('/config', async (req, res) => {
           </select>
         </label>
 
+
+        ${sesion.esMod ? `
+        <hr style="border:none;border-top:1px solid #2d3139;margin:22px 0;">
+        <h3 style="color:#fbbf24;margin:0 0 10px;font-size:16px;">🛡️ Moderación</h3>
+        <p style="color:#9ca3af;font-size:13px;margin:0 0 12px;line-height:1.45;">Solo visible para moderadores. El <b>modo super admin</b> permite editar y borrar mods, foros y videos de <b>cualquier usuario</b>.</p>
+        <label class="config-row">
+          <span>
+            <b style="color:white;">Modo super admin</b><br>
+            <span style="color:#9ca3af;font-size:13px;">Editar / gestionar contenido de toda la web. Usalo con cuidado.</span>
+          </span>
+          <input type="checkbox" id="optSuperAdmin" style="width:auto;transform:scale(1.3);">
+        </label>
+        <p id="superAdminHint" style="color:#86efac;font-size:12px;display:none;margin:0 0 8px;">✅ Super admin activo — vas a ver botones de editar en contenido ajeno.</p>
+        ` : ''}
+
         <hr style="border:none;border-top:1px solid #2d3139;margin:22px 0;">
         <h3 style="color:white;margin:0 0 8px 0;font-size:16px;">📦 Instalación automática</h3>
         <p style="color:#9ca3af;font-size:13px;margin:0 0 14px 0;line-height:1.45;">
@@ -2667,6 +2729,8 @@ app.get('/config', async (req, res) => {
       var track = document.getElementById('optMusicTrack');
       var lst = document.getElementById('optList');
       var bgm = document.getElementById('optBgMove');
+      var sa = document.getElementById('optSuperAdmin');
+      var saHint = document.getElementById('superAdminHint');
       var clk = document.getElementById('optClick');
       var nCom = document.getElementById('optNotifCom');
       var nLike = document.getElementById('optNotifLike');
@@ -2762,6 +2826,31 @@ app.get('/config', async (req, res) => {
         if (!el) return;
         el.addEventListener('change', saveSpecialPrefs);
       });
+
+      
+      function setSuperAdminCookie(on) {
+        try {
+          if (on) document.cookie = 'cfm_super_admin=1;path=/;max-age=31536000;SameSite=Lax';
+          else document.cookie = 'cfm_super_admin=;path=/;max-age=0;SameSite=Lax';
+        } catch (e) {}
+        try { localStorage.setItem('cfm_super_admin', on ? '1' : '0'); } catch (e) {}
+      }
+      function getSuperAdminOn() {
+        try {
+          var m = document.cookie.match(/(?:^|; )cfm_super_admin=([^;]*)/);
+          if (m && m[1] === '1') return true;
+        } catch (e) {}
+        try { return localStorage.getItem('cfm_super_admin') === '1'; } catch (e) {}
+        return false;
+      }
+      if (sa) {
+        sa.checked = getSuperAdminOn();
+        if (saHint) saHint.style.display = sa.checked ? 'block' : 'none';
+        sa.addEventListener('change', function() {
+          setSuperAdminCookie(sa.checked);
+          if (saHint) saHint.style.display = sa.checked ? 'block' : 'none';
+        });
+      }
 
       document.getElementById('btnPickFolder').addEventListener('click', async function() {
         if (!window.showDirectoryPicker) {
@@ -3719,7 +3808,7 @@ app.get('/cooptube/v/:id', async (req, res) => {
     if (v.modUrl) {
       modLink = `<p style="margin:12px 0;"><a href="${escapeHtml(v.modUrl)}" class="btn-blue" rel="noopener">📦 Ver mod relacionado</a></p>`;
     }
-    const del = (sesion.name === v.autor || sesion.esMod)
+    const del = (sesion.name === v.autor || sesion.superAdmin || sesion.esMod)
       ? `<a href="/cooptube/borrar/${v.id}" class="btn-delete" onclick="return confirm('¿Borrar este video?');">Borrar video</a>`
       : '';
     let fecha = '';
@@ -3986,7 +4075,7 @@ app.get('/cooptube/borrar/:id'
   if (!id) return res.redirect('/cooptube');
   const { data } = await supabase.from('videos').select('autor').eq('id', id).single();
   if (!data) return res.redirect('/cooptube');
-  if (data.autor !== sesion.name && !sesion.esMod) {
+  if (data.autor !== sesion.name && !sesion.superAdmin && !sesion.esMod) {
     return pageError(res, 403, 'Sin permisos', 'No podés borrar este video.', sesion, 0);
   }
   await supabase.from('videos').delete().eq('id', id);
