@@ -435,6 +435,51 @@ async function uploadToStorage(bucket, filePath, buffer, contentType) {
   const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
   return data.publicUrl;
 }
+/** Aviso a Discord al publicar un mod (webhook). Env: DISCORD_WEBHOOK_URL */
+async function notifyDiscordNewMod(mod, req) {
+  const webhook = String(process.env.DISCORD_WEBHOOK_URL || '').trim();
+  if (!webhook || !webhook.startsWith('https://discord.com/api/webhooks/')) {
+    return; // no configurado
+  }
+  try {
+    const base = (typeof siteBaseUrl === 'function') ? siteBaseUrl(req) : 'https://coop-free-mods.vercel.app';
+    const url = base + '/mod/' + mod.id;
+    const desc = String(mod.descripcion || '').replace(/\s+/g, ' ').trim().slice(0, 280);
+    const img = (mod.rutasImagenes && mod.rutasImagenes[0]) ? mod.rutasImagenes[0] : (base + '/public/logo.png');
+    const tags = Array.isArray(mod.tags) && mod.tags.length ? mod.tags.slice(0, 6).join(', ') : '—';
+    const embed = {
+      title: mod.titulo || 'Nuevo mod',
+      url,
+      description: desc || 'Sin descripción',
+      color: 0xe11d48,
+      fields: [
+        { name: 'Autor', value: '@' + (mod.autor || '?'), inline: true },
+        { name: 'Versión', value: String(mod.version || '—'), inline: true },
+        { name: 'Categoría', value: String(mod.categoria || '—'), inline: true },
+        { name: 'Tags', value: tags, inline: false }
+      ],
+      thumbnail: { url: img },
+      footer: { text: 'Coop Free Mods · Nuevo mod publicado' },
+      timestamp: new Date().toISOString()
+    };
+    const body = {
+      username: 'Coop Free Mods',
+      content: '📦 **Nuevo mod** en la web',
+      embeds: [embed]
+    };
+    const r = await fetch(webhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      console.error('Discord webhook', r.status, txt.slice(0, 200));
+    }
+  } catch (e) {
+    console.error('notifyDiscordNewMod', e.message || e);
+  }
+}
 async function crearNotif(usuario, tipo, mensaje, link) {
   if (!usuario) return;
   try {
@@ -1796,17 +1841,33 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
       destacado: false,
       colaboradores: collabs
     };
-    let { error } = await supabase.from('mods').insert(insertPayload);
+    let { data: inserted, error } = await supabase.from('mods').insert(insertPayload).select('id').single();
     if (error && /colaboradores/i.test(error.message || '')) {
       delete insertPayload.colaboradores;
-      ({ error } = await supabase.from('mods').insert(insertPayload));
+      ({ data: inserted, error } = await supabase.from('mods').insert(insertPayload).select('id').single());
     }
     // Avisar colaboradores
     for (const c of collabs) {
       if (c !== sesion.name) await crearNotif(c, 'collab', `@${sesion.name} te añadió como colaborador en "${req.body.titulo}"`, '/mis-mods');
     }
     if (error) throw error;
-    res.redirect('/mods');
+    const newId = inserted && inserted.id;
+    // Discord (no bloquea si falla)
+    if (newId) {
+      try {
+        await notifyDiscordNewMod({
+          id: newId,
+          titulo: req.body.titulo,
+          descripcion: req.body.descripcion,
+          autor: sesion.name,
+          version: req.body.version,
+          categoria: req.body.categoria,
+          tags: tagsArr,
+          rutasImagenes: rutas
+        }, req);
+      } catch (e) { console.error(e); }
+    }
+    res.redirect(newId ? '/mod/' + newId : '/mods');
   } catch (e) {
     console.error(e);
     pageError(res, 500, 'Error al publicar', escapeHtml(e.message || 'Error desconocido'), sesion, 0);
