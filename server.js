@@ -510,7 +510,7 @@ function authLinks(sesion, nNotif) {
   }
   const modBadge = sesion.esMod ? `<span class="mod-badge">MOD</span>` : '';
   return `<a href="/publish" class="btn-red">+ Publicar mod</a>
-    <a href="/user/${escapeHtml(sesion.name)}" style="color:#fbbf24;font-weight:bold;text-decoration:none;font-size:14px;">Hola, ${escapeHtml(sesion.name)}</a>${modBadge}
+    <a href="/user/${escapeHtml(sesion.name)}" style="color:#ffffff;font-weight:bold;text-decoration:none;font-size:14px;">Hola, ${escapeHtml(sesion.name)}</a>${modBadge}
     <a href="/logout" style="color:#9ca3af;">Salir</a>`;
 }
 function leftUserLinks(sesion, nNotif) {
@@ -525,7 +525,7 @@ function navbar(sesion, nNotif, extra, opts) {
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   const logoSrc = opts.logo || '/public/logo.png';
   const logoHref = opts.logoHref || '/';
-  return `<script src="/public/cfm-prefs.js?v=9"></script>
+  return `<script src="/public/cfm-prefs.js?v=10"></script>
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
@@ -566,7 +566,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=9';
+          s.src = '/public/cfm-prefs.js?v=10';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -624,11 +624,24 @@ function navbar(sesion, nNotif, extra, opts) {
         function cfmLoadJSZip() {
           return new Promise(function(resolve, reject) {
             if (window.JSZip) return resolve(window.JSZip);
-            var s = document.createElement('script');
-            s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
-            s.onload = function() { resolve(window.JSZip); };
-            s.onerror = function() { reject(new Error('No se pudo cargar JSZip')); };
-            document.head.appendChild(s);
+            var urls = [
+              'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
+              'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js',
+              'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
+            ];
+            var i = 0;
+            function tryNext() {
+              if (i >= urls.length) return reject(new Error('No se pudo cargar JSZip'));
+              var s = document.createElement('script');
+              s.src = urls[i++];
+              s.onload = function() {
+                if (window.JSZip) resolve(window.JSZip);
+                else tryNext();
+              };
+              s.onerror = function() { tryNext(); };
+              document.head.appendChild(s);
+            }
+            tryNext();
           });
         }
         function cfmToast(text, ok) {
@@ -646,8 +659,14 @@ function navbar(sesion, nNotif, extra, opts) {
           window.__cfmToastT = setTimeout(function(){ el.style.display = 'none'; }, 4500);
         }
         async function cfmAutoInstall(modId, anchor) {
-          if (localStorage.getItem('cfm_auto_install') !== '1') return false;
-          if (!window.showDirectoryPicker) return false;
+          var on = false;
+          try { on = localStorage.getItem('cfm_auto_install') === '1'; } catch (e) {}
+          if (!on && window.cfmPrefs) try { on = window.cfmPrefs.get('cfm_auto_install') === '1'; } catch (e) {}
+          if (!on) return false;
+          if (!window.showDirectoryPicker) {
+            cfmToast('Usá Chrome o Edge para instalación automática.', false);
+            return false;
+          }
           var dir = await cfmLoadDir();
           if (!dir) {
             cfmToast('Activá instalación automática y elegí la carpeta en Config ⚙️', false);
@@ -673,7 +692,12 @@ function navbar(sesion, nNotif, extra, opts) {
             if (m) fname = decodeURIComponent((m[1] || m[2] || 'mod.zip').trim());
             var buf = await res.arrayBuffer();
             var lower = fname.toLowerCase();
-            var doExtract = localStorage.getItem('cfm_auto_extract') !== '0';
+            var doExtract = true;
+            try {
+              var ex = localStorage.getItem('cfm_auto_extract');
+              if (ex === '0') doExtract = false;
+              else if (ex === null && window.cfmPrefs && window.cfmPrefs.get('cfm_auto_extract') === '0') doExtract = false;
+            } catch (e) {}
 
             if (doExtract && lower.endsWith('.zip')) {
               var JSZip = await cfmLoadJSZip();
@@ -708,18 +732,26 @@ function navbar(sesion, nNotif, extra, opts) {
 
         document.addEventListener('click', function(ev) {
           try {
-            if (localStorage.getItem('cfm_auto_install') !== '1') return;
+            var on = false;
+            try { on = localStorage.getItem('cfm_auto_install') === '1'; } catch (e) {}
+            if (!on && window.cfmPrefs) try { on = window.cfmPrefs.get('cfm_auto_install') === '1'; } catch (e) {}
+            if (!on) return;
             var a = ev.target.closest && ev.target.closest('a[href^="/download/"]');
             if (!a) return;
             var href = a.getAttribute('href') || '';
             var mm = href.match(/^\/download\/(\d+)/);
             if (!mm) return;
+            // No interceptar si es middle-click o ctrl
+            if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
             ev.preventDefault();
             ev.stopPropagation();
             var id = mm[1];
             cfmAutoInstall(id, a).then(function(done) {
-              if (!done) window.location.href = href;
-            });
+              if (!done) {
+                // fallback: forzar descarga navegando
+                window.location.href = href;
+              }
+            }).catch(function(){ window.location.href = href; });
           } catch (e) {}
         }, true);
       }
@@ -2502,7 +2534,7 @@ app.get('/jugar-sm64', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=9"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=10"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
@@ -2542,6 +2574,14 @@ app.get('/config', async (req, res) => {
             <span style="color:#9ca3af;font-size:13px;">Mostrar los mods en filas compactas en lugar de tarjetas grandes.</span>
           </span>
           <input type="checkbox" id="optList" style="width:auto;transform:scale(1.3);">
+        </label>
+
+        <label class="config-row">
+          <span>
+            <b style="color:white;">Fondo en movimiento</b><br>
+            <span style="color:#9ca3af;font-size:13px;">El fondo se mueve suavemente (estilo Saturn 64 Android).</span>
+          </span>
+          <input type="checkbox" id="optBgMove" style="width:auto;transform:scale(1.3);">
         </label>
 
         <label class="config-row">
@@ -2626,6 +2666,7 @@ app.get('/config', async (req, res) => {
       var mus = document.getElementById('optMusic');
       var track = document.getElementById('optMusicTrack');
       var lst = document.getElementById('optList');
+      var bgm = document.getElementById('optBgMove');
       var clk = document.getElementById('optClick');
       var nCom = document.getElementById('optNotifCom');
       var nLike = document.getElementById('optNotifLike');
@@ -2699,6 +2740,29 @@ app.get('/config', async (req, res) => {
         msg.style.color = '#fbbf24';
       }
 
+      
+      function saveSpecialPrefs() {
+        if (cur) setPref('cfm_cursor', cur.checked ? '1' : '0');
+        if (mus) setPref('cfm_music', mus.checked ? '1' : '0');
+        if (track) setPref('cfm_music_track', track.value || '1');
+        if (lst) setPref('cfm_list', lst.checked ? '1' : '0');
+        if (bgm) setPref('cfm_bg_move', bgm.checked ? '1' : '0');
+        if (clk) setPref('cfm_click', clk.checked ? '1' : '0');
+        if (auto) {
+          setPref('cfm_auto_install', auto.checked ? '1' : '0');
+          try { localStorage.setItem('cfm_auto_install', auto.checked ? '1' : '0'); } catch (e) {}
+        }
+        if (extract) {
+          setPref('cfm_auto_extract', extract.checked ? '1' : '0');
+          try { localStorage.setItem('cfm_auto_extract', extract.checked ? '1' : '0'); } catch (e) {}
+        }
+        if (window.cfmPrefs) window.cfmPrefs.applyAll();
+      }
+      [cur, mus, lst, bgm, clk, auto, extract, track].forEach(function(el) {
+        if (!el) return;
+        el.addEventListener('change', saveSpecialPrefs);
+      });
+
       document.getElementById('btnPickFolder').addEventListener('click', async function() {
         if (!window.showDirectoryPicker) {
           alert('Esta función necesita Chrome, Edge u Opera.');
@@ -2757,6 +2821,7 @@ app.get('/config', async (req, res) => {
       if (nOtros) nOtros.checked = getPref('cfm_notif_otros') !== '0';
       if (grid) grid.value = getPref('cfm_grid') || '3';
         auto.checked = getPref('cfm_auto_install') === '1';
+      try { if (auto.checked) localStorage.setItem('cfm_auto_install', '1'); } catch (e) {}
         extract.checked = getPref('cfm_auto_extract') !== '0';
         track.value = getPref('cfm_music_track') || '1';
       }
@@ -2791,6 +2856,7 @@ app.get('/config', async (req, res) => {
           }).catch(function(){});
         } catch (e) {}
         setPref('cfm_auto_install', auto.checked ? '1' : '0');
+        if (bgm) setPref('cfm_bg_move', bgm.checked ? '1' : '0');
         setPref('cfm_auto_extract', extract.checked ? '1' : '0');
         // feedback inmediato en esta página
         if (clk.checked) {
