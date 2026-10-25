@@ -1017,12 +1017,24 @@ app.get('/', async (req, res) => {
             <p style="margin:10px 0 0;"><a href="/autores" class="btn-gray" style="font-size:12px;">Ver ranking →</a></p>
           </div>
         </div>
+        <div class="partner-box">
+          <div class="partner-box-inner">
+            <div class="partner-badge">🤝 Colaboración especial</div>
+            <h3 style="margin:8px 0 6px;color:#fff;font-size:20px;">Saturn 64 Android</h3>
+            <p style="margin:0 0 14px;color:#c4b5fd;font-size:14px;line-height:1.45;max-width:520px;">
+              Port nativo de Saturn 64 para Android: descargas, dynos (modelos, animaciones y texturas) y comunidad.
+              Proyecto partner de Coop Free Mods.
+            </p>
+            <a href="/saturn" class="btn-partner-glow">🪐 Ir a Saturn 64 Android</a>
+          </div>
+        </div>
         <div class="home-cta">
           <a href="/mods" class="btn-red">Ver Mods</a>
           <a href="/top" class="btn-blue">Top 10</a>
           <a href="/foros" class="btn-blue">Foros</a>
           <a href="/como-instalar" class="btn-gray" style="padding:10px 16px;font-size:14px;">Cómo instalar</a>
           <a href="/discord" class="discord-float" style="margin:0;">Discord</a>
+          <a href="/saturn" class="btn-partner-glow" style="margin:0;">Saturn 64</a>
           <button type="button" id="cfm-egg-zone" aria-label="egg" style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;margin-left:6px;padding:0;border:1px solid #374151;border-radius:8px;background:#1f2937;color:#4b5563;font-size:16px;line-height:1;cursor:pointer;vertical-align:middle;">·</button>
           <a href="/jugar-sm64" id="cfm-egg-sm64" style="display:none;margin:0;background:#e11d48;color:#fff !important;font-weight:800;padding:12px 16px;border-radius:999px;text-decoration:none;box-shadow:0 6px 20px rgba(225,29,72,0.45);">🍄 Jugar SM64</a>
         </div>
@@ -4796,6 +4808,44 @@ app.get('/pack/:id/borrar', async (req, res) => {
   res.redirect('/packs');
 });
 
+
+
+app.get('/saturn', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const og = ogMetaTags(req, {
+    title: 'Saturn 64 Android | Partner — Coop Free Mods',
+    description: 'Colaboración especial con Saturn 64 Android: port nativo para Android, dynos y comunidad.',
+    image: '/public/logo.png',
+    path: '/saturn'
+  });
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Saturn 64 Android | Coop Free Mods</title>
+  ${og}${estilosCSS}</head><body>
+  ${navbar(sesion, nNotif)}
+  <div class="main-container" style="max-width:720px;">
+    <div class="partner-box" style="margin-top:10px;">
+      <div class="partner-box-inner" style="text-align:center;">
+        <div class="partner-badge">🤝 Colaboración especial</div>
+        <h1 style="color:#fff;margin:12px 0 8px;font-size:28px;">Saturn 64 Android</h1>
+        <p style="color:#ddd6fe;font-size:15px;line-height:1.55;margin:0 0 18px;">
+          <b>Saturn 64 Android</b> es un port nativo de Saturn 64 para Android.
+          Ahí podés descargar las builds, subir y compartir <b>dynos</b> (modelos, animaciones y texturas)
+          y chatear con la comunidad.
+        </p>
+        <p style="color:#c4b5fd;font-size:14px;line-height:1.5;margin:0 0 22px;">
+          Esta es una <b>colaboración especial</b> entre <b>Coop Free Mods</b> (mods de SM64 Co-op)
+          y <b>Saturn 64 Android</b>. Cada proyecto sigue siendo independiente, pero nos apoyamos
+          y compartimos la misma onda de comunidad.
+        </p>
+        <a href="https://saturn-64-android-web.vercel.app/" target="_blank" rel="noopener" class="btn-partner-glow" style="font-size:17px;padding:14px 28px;">
+          Abrir Saturn 64 Android →
+        </a>
+        <p style="margin:18px 0 0;"><a href="/" class="btn-gray" style="font-size:13px;">← Volver al inicio</a></p>
+      </div>
+    </div>
+  </div>
+  </body></html>`);
+});
 
 app.use(async (req, res) => {
   try {
