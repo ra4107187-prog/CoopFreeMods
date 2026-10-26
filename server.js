@@ -618,6 +618,83 @@ function canManageContent(sesion, autor, collabs) {
   if (Array.isArray(collabs) && collabs.includes(sesion.name)) return true;
   return false;
 }
+
+/** Marca presencia (last_seen). Requiere columna last_seen en usuarios (opcional). */
+async function touchPresence(usuario) {
+  if (!usuario) return;
+  try {
+    await supabase.from('usuarios').update({ last_seen: new Date().toISOString() }).eq('usuario', usuario);
+  } catch (e) {}
+}
+async function countOnlineUsers(minutes) {
+  minutes = minutes || 15;
+  try {
+    const since = new Date(Date.now() - minutes * 60 * 1000).toISOString();
+    const { count, error } = await supabase.from('usuarios').select('*', { count: 'exact', head: true }).gte('last_seen', since);
+    if (error) return null;
+    return count || 0;
+  } catch (e) { return null; }
+}
+/** Insignias de perfil según actividad global */
+async function computeUserBadges(username) {
+  const badges = [];
+  if (!username) return badges;
+  if (isMod(username)) badges.push({ id: 'mod', icon: '🛡️', label: 'Moderador', tip: 'Moderador de Coop Free Mods' });
+  try {
+    const { data: mods } = await supabase.from('mods').select('id,autor,descargas,likes,comentarios,destacado,titulo');
+    const all = mods || [];
+    // ranking descargas por autor
+    const dlMap = {};
+    const likeMap = {};
+    const modCount = {};
+    const commentCount = {};
+    for (const m of all) {
+      const a = m.autor || '';
+      if (!a) continue;
+      dlMap[a] = (dlMap[a] || 0) + (m.descargas || 0);
+      likeMap[a] = (likeMap[a] || 0) + (m.likes || 0);
+      modCount[a] = (modCount[a] || 0) + 1;
+      const coms = Array.isArray(m.comentarios) ? m.comentarios : [];
+      for (const c of coms) {
+        if (c && c.usuario) commentCount[c.usuario] = (commentCount[c.usuario] || 0) + 1;
+      }
+      if (m.destacado && a === username) {
+        badges.push({ id: 'semana', icon: '⭐', label: 'Mod de la semana', tip: 'Publicó un mod de la semana' });
+      }
+    }
+    const rankTop = (map, key, icon, label, tip) => {
+      const sorted = Object.entries(map).sort((a, b) => b[1] - a[1]);
+      const idx = sorted.findIndex(([u]) => u === username);
+      if (idx >= 0 && idx < 3 && sorted[idx][1] > 0) {
+        const place = idx + 1;
+        badges.push({ id: key + place, icon, label: label + ' #' + place, tip: tip + ' (puesto ' + place + ')' });
+      }
+    };
+    rankTop(dlMap, 'dl', '⬇️', 'Top descargas', 'Entre los autores con más descargas totales');
+    rankTop(likeMap, 'lk', '👍', 'Top likes', 'Entre los autores con más likes totales');
+    rankTop(commentCount, 'cm', '💬', 'Top comentador', 'Entre los que más comentan en la web');
+    if ((modCount[username] || 0) >= 5) {
+      badges.push({ id: 'autor5', icon: '📦', label: 'Autor activo', tip: '5 o más mods publicados' });
+    } else if ((modCount[username] || 0) >= 1) {
+      badges.push({ id: 'autor', icon: '📦', label: 'Autor', tip: 'Publicó al menos un mod' });
+    }
+    try {
+      const { count } = await supabase.from('videos').select('*', { count: 'exact', head: true }).eq('autor', username);
+      if ((count || 0) >= 3) badges.push({ id: 'cine', icon: '🎬', label: 'Cineasta', tip: '3 o más videos en CoopTube' });
+      else if ((count || 0) >= 1) badges.push({ id: 'video', icon: '🎬', label: 'En CoopTube', tip: 'Publicó videos en CoopTube' });
+    } catch (e) {}
+  } catch (e) { console.error('badges', e); }
+  // unique by id
+  const seen = new Set();
+  return badges.filter(b => (seen.has(b.id) ? false : (seen.add(b.id), true)));
+}
+function renderBadgesHtml(badges) {
+  if (!badges || !badges.length) return '';
+  return '<div class="profile-badges">' + badges.map(b =>
+    `<span class="profile-badge" title="${escapeHtml(b.tip || b.label)}">${b.icon} ${escapeHtml(b.label)}</span>`
+  ).join('') + '</div>';
+}
+
 function authLinks(sesion, nNotif) {
   if (!sesion.name) {
     return `<a href="/login" style="color:#ced4da;text-decoration:none;font-size:14px;">Entrar</a>
@@ -667,7 +744,7 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/cooptube">📺 CoopTube</a>
         <a href="/ia-mods">🍄 ToadCode</a>
         <a href="/mensajes">✉️ Mensajes</a>
-        <a href="/stats">📊 Stats</a>
+        <a href="/stats">📡 Estado</a>
         <a href="/discord">Discord</a>
       </div>
     </div>
@@ -675,6 +752,12 @@ function navbar(sesion, nNotif, extra, opts) {
   <script>
   (function(){
     try {
+      // Presencia online (usuarios logueados)
+      try {
+        if (document.cookie.indexOf('usuarioSesion=') !== -1) {
+          fetch('/api/presence', { method: 'POST', credentials: 'same-origin' }).catch(function(){});
+        }
+      } catch (e) {}
       // Preferencias: manejadas por /public/cfm-prefs.js
       try {
         if (window.cfmPrefs) window.cfmPrefs.applyAll();
@@ -1636,6 +1719,8 @@ app.get('/user/:username', async (req, res) => {
     const { data: modsData } = await supabase.from('mods').select('*').eq('autor', username).order('id', { ascending: false });
     const userMods = (modsData || []).map(mapMod);
     const top1IdUser = await getTop1ModId();
+    const userBadges = await computeUserBadges(username);
+    const badgesHtml = renderBadgesHtml(userBadges);
     let userVideos = [];
     try {
       const { data: vids } = await supabase.from('videos').select('*').eq('autor', username).order('created_at', { ascending: false }).limit(30);
@@ -1671,7 +1756,8 @@ app.get('/user/:username', async (req, res) => {
             <div>
               <h1 style="margin:0;color:white;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}</h1>
               <p style="color:#ced4da;margin:10px 0;">${escapeHtml(user.descripcion)}</p>
-              <p style="color:#9ca3af;font-size:12px;margin:0;">Desde el ${escapeHtml(user.fechaRegistro)} · 👥 ${(user.seguidores||[]).length} seguidores</p>
+              ${badgesHtml}
+              <p style="color:#9ca3af;font-size:12px;margin:8px 0 0;">Desde el ${escapeHtml(user.fechaRegistro)} · 👥 ${(user.seguidores||[]).length} seguidores · 📦 ${userMods.length} mods</p>
               ${sesion.name === user.usuario ? `
               <form action="/user/${encodeURIComponent(user.usuario)}/avatar" method="POST" enctype="multipart/form-data" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                 <input type="file" name="avatar" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif" required style="max-width:220px;">
@@ -4338,11 +4424,26 @@ app.get('/mod-semana/quitar/:id', async (req, res) => {
 });
 
 // ========== Stats públicas ==========
+
+app.post('/api/presence', async (req, res) => {
+  try {
+    const sesion = await getSesion(req);
+    if (sesion.name) await touchPresence(sesion.name);
+    res.json({ ok: true });
+  } catch (e) {
+    res.json({ ok: false });
+  }
+});
+app.get('/estado', async (req, res) => {
+  res.redirect('/stats');
+});
+
 app.get('/stats', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
   try {
-    const { data: allMods } = await supabase.from('mods').select('id,descargas,likes,autor,titulo,categoria');
+    const { data: allMods } = await supabase.from('mods').select('id,descargas,likes,autor,titulo,categoria,fecha_creacion,created_at,rutas_imagenes');
+    const onlineCount = await countOnlineUsers(15);
     const mods = allMods || [];
     const { count: nUsers } = await supabase.from('usuarios').select('*', { count: 'exact', head: true });
     let nVideos = 0, nForos = 0, nPacks = 0, nEventos = 0, nNovedades = 0;
@@ -4375,11 +4476,31 @@ app.get('/stats', async (req, res) => {
       .map(([c, n]) => `<tr><td>${escapeHtml(c)}</td><td style="text-align:right;">${n}</td></tr>`).join('');
     const top = [...mods].sort((a, b) => (b.descargas || 0) - (a.descargas || 0)).slice(0, 5)
       .map((m, i) => `<li style="margin:6px 0;"><a href="/mod/${m.id}" style="color:#93c5fd;">${i + 1}. ${escapeHtml(m.titulo)}</a> — ⬇️ ${m.descargas || 0}</li>`).join('');
+    // último mod
+    let lastModHtml = '<p style="color:#9ca3af;">Sin mods aún.</p>';
+    try {
+      const { data: lastRows } = await supabase.from('mods').select('*').order('id', { ascending: false }).limit(1);
+      const lm = lastRows && lastRows[0] ? mapMod(lastRows[0]) : null;
+      if (lm) {
+        const th = (lm.rutasImagenes && lm.rutasImagenes[0]) ? `<img src="${escapeHtml(lm.rutasImagenes[0])}" style="width:72px;height:72px;object-fit:cover;border-radius:10px;">` : '<div style="width:72px;height:72px;background:#1f2937;border-radius:10px;display:flex;align-items:center;justify-content:center;">📦</div>';
+        lastModHtml = `<a href="/mod/${lm.id}" style="display:flex;gap:14px;align-items:center;text-decoration:none;color:inherit;">${th}<div><div style="color:#fff;font-weight:700;">${escapeHtml(lm.titulo)}</div><div style="color:#9ca3af;font-size:13px;">@${escapeHtml(lm.autor)} · ${escapeHtml(lm.categoria || '')} · ⬇️ ${lm.descargas || 0}</div></div></a>`;
+      }
+    } catch (e) {}
+    const onlineNote = onlineCount === null
+      ? '<p style="color:#fbbf24;font-size:12px;">Para ver “online” exacto, ejecutá en Supabase: <code style="color:#e5e7eb;">ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS last_seen timestamptz;</code></p>'
+      : '<p style="color:#6b7280;font-size:12px;">Online = usuarios logueados activos en los últimos 15 minutos.</p>';
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Estadísticas | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container" style="max-width:800px;">
-        <h1 style="color:white;">📊 Estadísticas públicas</h1>
+        <h1 style="color:white;">📡 Página de estado</h1>
+        ${onlineNote}
+        <div class="info-box" style="margin:16px 0;">
+          <h2 style="margin:0 0 10px;color:#fff;font-size:16px;">🆕 Último mod publicado</h2>
+          ${lastModHtml}
+        </div>
+        <p style="color:#9ca3af;margin:0 0 16px;">Estado de Coop Free Mods · actualizado al cargar</p>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:20px 0;">
+          <div class="info-box" style="text-align:center;margin:0;border-color:#22c55e;"><div style="font-size:28px;font-weight:800;color:#86efac;">${onlineCount === null ? '—' : onlineCount}</div><div style="color:#9ca3af;">Online (15 min)</div></div>
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${mods.length}</div><div style="color:#9ca3af;">Mods</div></div>
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${totalDesc}</div><div style="color:#9ca3af;">Descargas</div></div>
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${totalLikes}</div><div style="color:#9ca3af;">Likes 👍</div></div>
