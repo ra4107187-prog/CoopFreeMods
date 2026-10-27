@@ -364,6 +364,7 @@ function mapMod(row) {
     ratingAvg,
     ratingCount: reviews.length,
     destacado: !!row.destacado,
+    featured: !!row.featured,
     colaboradores: normalizeStringArray(row.colaboradores).map(String).filter(c => /^[A-Za-z0-9_\-]{2,24}$/.test(c))
   };
 }
@@ -1083,6 +1084,11 @@ app.get('/', async (req, res) => {
       const { data: dest } = await supabase.from('mods').select('*').eq('destacado', true).order('id', { ascending: false }).limit(1);
       if (dest && dest[0]) modSemana = mapMod(dest[0]);
     } catch (e) { /* columna destacado opcional */ }
+    let featuredMods = [];
+    try {
+      const { data: feat } = await supabase.from('mods').select('*').eq('featured', true).order('id', { ascending: false }).limit(8);
+      featuredMods = (feat || []).map(mapMod).filter(Boolean).slice(0, 8);
+    } catch (e) { /* columna featured opcional */ }
     let statsPub = { mods: mods.length, descargas: 0, usuarios: 0, videos: 0, foros: forosRec.length, packs: 0, eventos: 0 };
     try {
       statsPub.descargas = mods.reduce((s, m) => s + (m.descargas || 0), 0);
@@ -1167,6 +1173,114 @@ app.get('/', async (req, res) => {
               <p class="home-lead">La biblioteca comunitaria hispana de mods gratis para <b>SM64 Co-op DX</b>, <b>SM64 EX Co-op</b> y <b>DX + EX</b>. Descargá, publicá y compartí personajes, dynos, hangouts, gamemodes y más.</p>
               <p class="home-lead" style="font-size:14px;color:#9ca3af;">Proyecto iniciado por @Ellos (them) y continuado por @SuperAaron64. Los mods se guardan en la nube y no se pierden al reiniciar.</p>
             </div>
+
+            <div class="home-section featured-section">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+                <h2 style="margin:0;">✨ Mods destacados</h2>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  ${sesion.esMod ? `<a href="/mods-destacados" class="btn-gray" style="font-size:12px;padding:6px 12px;">Gestionar (mod)</a>` : ''}
+                  ${featuredMods.length ? `<a href="/mods" class="featured-all-link">Ver todos →</a>` : ''}
+                </div>
+              </div>
+              ${featuredMods.length ? (function(){
+                const card = (m) => {
+                  const foto = m.rutasImagenes && m.rutasImagenes[0];
+                  const img = foto
+                    ? `<img class="featured-icon" src="${escapeHtml(foto)}" alt="">`
+                    : `<div class="featured-icon featured-icon-ph">📦</div>`;
+                  const stars = m.ratingCount
+                    ? Array.from({length:5}, (_,i) => i < Math.round(m.ratingAvg) ? '★' : '☆').join('')
+                    : '☆☆☆☆☆';
+                  const desc = escapeHtml((m.descripcion || '').slice(0, 120)) + ((m.descripcion || '').length > 120 ? '…' : '');
+                  return `<a href="/mod/${m.id}" class="featured-card">
+                    ${img}
+                    <div class="featured-body">
+                      <h3 class="featured-title">${escapeHtml(m.titulo)}</h3>
+                      <p class="featured-desc">${desc}</p>
+                      <div class="featured-meta"><span class="featured-author">${escapeHtml(m.autor)}</span>
+                        <span class="featured-sep">·</span>
+                        <span>${escapeHtml(m.fechaCreacion || '')}</span>
+                        <span class="featured-sep">·</span>
+                        <span>⬇️ ${m.descargas || 0}</span></div>
+                      <div class="featured-stars" title="${m.ratingCount ? (m.ratingAvg.toFixed(1) + ' / 5') : 'Sin reseñas'}">${stars}</div>
+                    </div>
+                  </a>`;
+                };
+                const per = 2;
+                const slides = [];
+                for (let i = 0; i < featuredMods.length; i += per) {
+                  slides.push(featuredMods.slice(i, i + per));
+                }
+                const slidesHtml = slides.map((pair, si) =>
+                  `<div class="featured-slide${si === 0 ? ' is-active' : ''}" data-slide="${si}">
+                    <div class="featured-slide-inner">${pair.map(card).join('')}</div>
+                  </div>`
+                ).join('');
+                const dots = slides.map((_, i) =>
+                  `<button type="button" class="featured-dot${i === 0 ? ' is-active' : ''}" data-dot="${i}" aria-label="Página ${i + 1}"></button>`
+                ).join('');
+                return `<div class="featured-carousel" id="featuredCarousel" data-count="${slides.length}">
+                  <button type="button" class="featured-nav featured-prev" aria-label="Anterior">‹</button>
+                  <div class="featured-viewport">
+                    <div class="featured-track">${slidesHtml}</div>
+                  </div>
+                  <button type="button" class="featured-nav featured-next" aria-label="Siguiente">›</button>
+                  <div class="featured-dots">${dots}</div>
+                </div>
+                <script>
+                (function(){
+                  var root = document.getElementById('featuredCarousel');
+                  if (!root) return;
+                  var slides = root.querySelectorAll('.featured-slide');
+                  var dots = root.querySelectorAll('.featured-dot');
+                  var n = slides.length;
+                  if (n < 2) {
+                    var navs = root.querySelectorAll('.featured-nav');
+                    for (var i = 0; i < navs.length; i++) navs[i].style.display = 'none';
+                    return;
+                  }
+                  var idx = 0, timer = null, paused = false;
+                  function go(i) {
+                    idx = (i + n) % n;
+                    for (var s = 0; s < slides.length; s++) {
+                      slides[s].classList.toggle('is-active', s === idx);
+                      if (dots[s]) dots[s].classList.toggle('is-active', s === idx);
+                    }
+                  }
+                  function next() { go(idx + 1); }
+                  function prev() { go(idx - 1); }
+                  function start() {
+                    stop();
+                    timer = setInterval(function(){ if (!paused) next(); }, 5000);
+                  }
+                  function stop() { if (timer) clearInterval(timer); timer = null; }
+                  root.querySelector('.featured-next').addEventListener('click', function(){ next(); start(); });
+                  root.querySelector('.featured-prev').addEventListener('click', function(){ prev(); start(); });
+                  for (var d = 0; d < dots.length; d++) {
+                    (function(di){
+                      dots[di].addEventListener('click', function(){ go(di); start(); });
+                    })(d);
+                  }
+                  root.addEventListener('mouseenter', function(){ paused = true; });
+                  root.addEventListener('mouseleave', function(){ paused = false; });
+                  // swipe
+                  var x0 = null;
+                  root.addEventListener('touchstart', function(e){ x0 = e.touches[0].clientX; paused = true; }, {passive:true});
+                  root.addEventListener('touchend', function(e){
+                    if (x0 === null) return;
+                    var dx = e.changedTouches[0].clientX - x0;
+                    if (Math.abs(dx) > 40) { if (dx < 0) next(); else prev(); }
+                    x0 = null; paused = false; start();
+                  }, {passive:true});
+                  start();
+                })();
+                </script>` + (featuredMods.length < 6 && sesion.esMod
+                  ? `<p style="color:#fbbf24;font-size:13px;margin-top:10px;">Se recomiendan mínimo 6 destacados (ahora: ${featuredMods.length}/8).</p>`
+                  : '');
+              })()
+                : `<p style="color:#9ca3af;">Todavía no hay mods destacados.${sesion.esMod ? ' <a href="/mods-destacados" style="color:#93c5fd;">Elegir destacados</a>' : ''}</p>`}
+            </div>
+
             <div class="home-section">
               <h2>🆕 Mods más recientes</h2>
               <div class="home-list">${recientes.map(miniMod).join('') || '<p style="color:#9ca3af;">Aún no hay mods.</p>'}</div>
@@ -1595,6 +1709,11 @@ app.get('/mod/:id', async (req, res) => {
           ? `<a href="/mod-semana/quitar/${mod.id}" class="btn-gray" style="font-size:13px;padding:6px 12px;">Quitar de la semana</a>`
           : `<a href="/mod-semana/${mod.id}" class="btn-blue" style="font-size:13px;padding:6px 12px;" onclick="return confirm('¿Marcar como Mod de la semana?')">⭐ Mod de la semana</a>`)
       : '';
+    const bFeatured = sesion.esMod
+      ? (mod.featured
+          ? `<a href="/mod-featured/quitar/${mod.id}" class="btn-gray" style="font-size:13px;padding:6px 12px;">Quitar destacado</a>`
+          : `<a href="/mod-featured/${mod.id}" class="btn-blue" style="font-size:13px;padding:6px 12px;background:#0ea5e9;" onclick="return confirm('¿Añadir a Mods destacados del inicio? (máx. 8)')">✨ Destacar</a>`)
+      : '';
     const top1IdDetail = await getTop1ModId();
     const isTop1Detail = top1IdDetail && mod.id === top1IdDetail;
     const badgeSemana = (mod.destacado ? '<span class="tag-version" style="background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;border:none;">⭐ MOD DE LA SEMANA</span> ' : '')
@@ -1620,7 +1739,7 @@ app.get('/mod/:id', async (req, res) => {
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
             <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:16px;padding:10px 16px;background:#1f2937;border-radius:8px;border:1px solid #374151;">👍 ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
-            ${bEdit}${bDel}${bSemana}
+            ${bEdit}${bDel}${bSemana}${bFeatured}
           </div>
         </div>
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:25px;">
@@ -4400,6 +4519,67 @@ app.get('/review-borrar/:id/:rid', async (req, res) => {
     await supabase.from('mods').update({ reviews }).eq('id', id);
   } catch (e) { console.error(e); }
   res.redirect('/mod/' + id);
+});
+
+
+// ========== Mods destacados (inicio, 6–8) ==========
+app.get('/mod-featured/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Solo moderadores pueden elegir mods destacados.', sesion, 0);
+  const id = parseInt(req.params.id, 10);
+  try {
+    const { count } = await supabase.from('mods').select('*', { count: 'exact', head: true }).eq('featured', true);
+    if ((count || 0) >= 8) {
+      return pageError(res, 400, 'Límite alcanzado', 'Ya hay 8 mods destacados. Quitá uno antes de añadir otro.', sesion, 0);
+    }
+    const { error } = await supabase.from('mods').update({ featured: true }).eq('id', id);
+    if (error) throw error;
+  } catch (e) {
+    return pageError(res, 500, 'Error', '¿Ejecutaste el SQL? Falta la columna <code>featured</code> en mods.<br>' + escapeHtml(e.message || ''), sesion, 0);
+  }
+  res.redirect('/mod/' + id);
+});
+app.get('/mod-featured/quitar/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Solo moderadores.', sesion, 0);
+  const id = parseInt(req.params.id, 10);
+  try { await supabase.from('mods').update({ featured: false }).eq('id', id); } catch (e) {}
+  const back = req.query.from === 'list' ? '/mods-destacados' : '/mod/' + id;
+  res.redirect(back);
+});
+app.get('/mods-destacados', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Solo moderadores gestionan los destacados.', sesion, nNotif);
+  let featured = [];
+  try {
+    const { data } = await supabase.from('mods').select('*').eq('featured', true).order('id', { ascending: false }).limit(8);
+    featured = (data || []).map(mapMod).filter(Boolean);
+  } catch (e) {
+    return pageError(res, 500, 'Error', 'Ejecutá el SQL: ALTER TABLE mods ADD COLUMN IF NOT EXISTS featured boolean DEFAULT false;', sesion, nNotif);
+  }
+  const list = featured.map(m => {
+    const foto = m.rutasImagenes && m.rutasImagenes[0];
+    const img = foto ? `<img src="${escapeHtml(foto)}" style="width:48px;height:48px;object-fit:cover;border-radius:10px;">` : '📦';
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px;border:1px solid #2d3139;border-radius:12px;margin-bottom:8px;">
+      ${img}
+      <div style="flex:1;min-width:0;"><a href="/mod/${m.id}" style="color:#fff;font-weight:700;">${escapeHtml(m.titulo)}</a>
+      <div style="color:#9ca3af;font-size:12px;">@${escapeHtml(m.autor)}</div></div>
+      <a href="/mod-featured/quitar/${m.id}?from=list" class="btn-delete" style="font-size:12px;">Quitar</a>
+    </div>`;
+  }).join('') || '<p style="color:#9ca3af;">Ninguno aún. Entrá a un mod y tocá “✨ Destacar”.</p>';
+  const warn = featured.length < 6
+    ? `<p style="color:#fbbf24;">Recomendado: mínimo 6 (ahora ${featured.length}/8).</p>`
+    : `<p style="color:#86efac;">${featured.length} / 8 destacados.</p>`;
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mods destacados | Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:640px;">
+      <h1 style="color:white;">✨ Mods destacados del inicio</h1>
+      <p style="color:#9ca3af;">Solo moderadores. Mínimo recomendado 6, máximo 8.</p>
+      ${warn}
+      ${list}
+      <p style="margin-top:16px;"><a href="/" class="btn-gray">← Inicio</a> <a href="/mods" class="btn-blue">Ver mods</a></p>
+    </div></body></html>`);
 });
 
 // ========== Mod de la semana ==========
