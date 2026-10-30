@@ -694,7 +694,8 @@ async function notifyDiscordNewMod(mod, req) {
     footer: { text: 'Coop Free Mods' },
     timestamp: new Date().toISOString()
   };
-  if (img) embed.thumbnail = { url: img };
+  // image = grande en Discord; thumbnail = chiquito
+  if (img) embed.image = { url: img };
 
   async function post(payload) {
     const r = await fetch(webhook, {
@@ -728,6 +729,59 @@ async function notifyDiscordNewMod(mod, req) {
   } catch (e) {
     console.error('[discord] error', e.message || e);
     return { ok: false, reason: 'exception', detail: String(e.message || e) };
+  }
+}
+
+
+async function notifyDiscordVideo(video, req) {
+  const webhook = String(process.env.DISCORD_WEBHOOK_URL || process.env.DISCORD_MODS_WEBHOOK || '').trim();
+  if (!webhook || !/^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\//i.test(webhook)) {
+    return { ok: false, reason: 'no_webhook' };
+  }
+  let base = 'https://coop-free-mods.vercel.app';
+  try {
+    if (typeof siteBaseUrl === 'function' && req) {
+      const b = siteBaseUrl(req);
+      if (b && /^https?:\/\//i.test(b)) base = b.replace(/\/$/, '');
+    }
+  } catch (e) {}
+  const url = base + '/cooptube/v/' + video.id;
+  const desc = String(video.descripcion || '').replace(/\s+/g, ' ').trim().slice(0, 280) || 'Video en CoopTube';
+  let img = null;
+  if (video.thumbnail && /^https:\/\//i.test(String(video.thumbnail))) img = String(video.thumbnail);
+  else if (video.youtubeId) img = 'https://i.ytimg.com/vi/' + video.youtubeId + '/hqdefault.jpg';
+  const embed = {
+    title: String(video.titulo || 'Nuevo video').slice(0, 200),
+    url,
+    description: desc,
+    color: 0xef4444,
+    fields: [
+      { name: 'Autor', value: '@' + String(video.autor || '?').slice(0, 40), inline: true },
+      { name: 'Categoría', value: String(video.categoria || '—').slice(0, 40), inline: true }
+    ],
+    footer: { text: 'CoopTube · Coop Free Mods' },
+    timestamp: new Date().toISOString()
+  };
+  if (img) embed.image = { url: img };
+  try {
+    const r = await fetch(webhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'CoopTube',
+        content: '📺 **Nuevo video:** [' + String(video.titulo || 'video').slice(0, 80) + '](' + url + ') por @' + (video.autor || '?'),
+        embeds: [embed]
+      })
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      console.error('[discord video]', r.status, txt.slice(0, 200));
+      return { ok: false, reason: 'http_' + r.status };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error('[discord video]', e.message || e);
+    return { ok: false, reason: 'exception' };
   }
 }
 
@@ -2219,6 +2273,11 @@ app.get('/user/:username', async (req, res) => {
             <div>
               <h1 style="margin:0;color:white;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}</h1>
               <p style="color:#ced4da;margin:10px 0;">${escapeHtml(user.descripcion)}</p>
+              ${sesion.name === user.usuario ? `
+              <form action="/user/${encodeURIComponent(user.usuario)}/bio" method="POST" style="margin:8px 0 12px;">
+                <textarea name="descripcion" rows="3" maxlength="300" style="width:100%;max-width:420px;" placeholder="Tu biografía...">${escapeHtml(user.descripcion || '')}</textarea>
+                <button type="submit" class="btn-blue" style="font-size:12px;padding:6px 12px;margin-top:6px;">💾 Guardar biografía</button>
+              </form>` : ''}
               ${badgesHtml}
               <p style="color:#9ca3af;font-size:12px;margin:8px 0 0;">Desde el ${escapeHtml(user.fechaRegistro)} · 👥 ${(user.seguidores||[]).length} seguidores · 📦 ${userMods.length} mods</p>
               ${sesion.name === user.usuario ? `
@@ -2269,6 +2328,22 @@ app.get('/unban/:username', async (req, res) => {
   res.redirect('/user/' + username);
 });
 
+
+
+app.post('/user/:username/bio', async (req, res) => {
+  const sesion = await getSesion(req);
+  const username = req.params.username;
+  if (!sesion.name) return res.redirect('/login');
+  if (sesion.name !== username && !sesion.esMod) {
+    return pageError(res, 403, 'Sin permisos', 'Solo podés editar tu biografía.', sesion, 0);
+  }
+  if (sesion.banneado) return pageError(res, 403, 'Cuenta baneada', 'Tu cuenta está baneada.', sesion, 0);
+  const descripcion = cleanText(req.body.descripcion || '').slice(0, 300);
+  try {
+    await supabase.from('usuarios').update({ descripcion }).eq('usuario', username);
+  } catch (e) { console.error(e); }
+  res.redirect('/user/' + encodeURIComponent(username));
+});
 
 app.post('/user/:username/avatar', upload.single('avatar'), async (req, res) => {
   const sesion = await getSesion(req);
@@ -2581,6 +2656,10 @@ app.get('/edit-mod/:id', async (req, res) => {
         <label>Colaboradores (máx. 4, deben existir, separados por coma):</label>
         <input type="text" name="colaboradores" value="${escapeHtml(collabStr)}" placeholder="Ej: Ellos, jugador2" maxlength="120">
         ${statsFields}
+
+        <label>Link externo de descarga (opcional):</label>
+        <input type="url" name="linkExterno" value="${(mod.archivoPath && /^https?:\/\//i.test(String(mod.archivoPath))) ? escapeHtml(mod.archivoPath) : ''}" placeholder="https://mediafire.com/... o drive / mega">
+        <p style="color:#9ca3af;font-size:12px;margin:4px 0 10px;">Si ponés un link (MediaFire, Drive o MEGA), reemplaza el archivo de descarga. Dejá vacío para no cambiarlo.</p>
         <label>Nuevo archivo (opcional):</label>
         <input type="file" name="archivoMod" accept=".zip,.7z,.rar,.lua">
         <p style="color:#9ca3af;font-size:12px;margin:4px 0 0;">Archivos grandes (más de ~3,5 MB) se suben directo a la nube para evitar el error 413 de Vercel. Máx. 50 MB. Si falla, usá link externo.</p>
@@ -2701,10 +2780,25 @@ app.post('/edit-mod/:id', upload.fields([{ name: 'archivoMod', maxCount: 1 }]), 
     if (fecha) update.fecha_creacion = fecha;
   }
 
+
+  // Actualizar link externo de descarga
+  const linkExterno = String(req.body.linkExterno || '').trim();
+  if (linkExterno) {
+    const okLink = /mediafire\.com|mega\.nz|mega\.co\.nz|drive\.google\.com|docs\.google\.com/i.test(linkExterno);
+    if (!okLink || !/^https?:\/\//i.test(linkExterno)) {
+      return pageError(res, 400, 'Link no permitido', 'Usá un link https de MediaFire, Google Drive o MEGA.', sesion, 0);
+    }
+    update.archivo_path = linkExterno;
+    update.nombre_archivo_real = 'link-externo';
+    update.peso_archivo = 'link';
+    const histL = mod.historialActualizaciones || [];
+    histL.push({ version: 'Update ' + (histL.length + 1), fecha: new Date().toLocaleDateString('es-ES'), notas: req.body.notasUpdate || 'Link de descarga actualizado' });
+    update.historial_actualizaciones = histL;
+  }
   const directPath = cleanText(req.body.archivo_path_direct || '').slice(0, 240);
   const directName = cleanText(req.body.archivo_nombre_direct || '').slice(0, 120);
   const directPeso = cleanText(req.body.archivo_peso_direct || '').slice(0, 32);
-  if (directPath && directPath.startsWith(sesion.name + '/')) {
+  if (!linkExterno && directPath && directPath.startsWith(sesion.name + '/')) {
     // Subida grande directa a Supabase (evita 413 de Vercel)
     update.nombre_archivo_real = directName || 'mod.zip';
     update.archivo_path = directPath;
@@ -2712,7 +2806,7 @@ app.post('/edit-mod/:id', upload.fields([{ name: 'archivoMod', maxCount: 1 }]), 
     const hist = mod.historialActualizaciones || [];
     hist.push({ version: 'Update ' + (hist.length + 1), fecha: new Date().toLocaleDateString('es-ES'), notas: req.body.notasUpdate || 'Update' });
     update.historial_actualizaciones = hist;
-  } else if (req.files && req.files['archivoMod'] && req.files['archivoMod'][0]) {
+  } else if (!linkExterno && req.files && req.files['archivoMod'] && req.files['archivoMod'][0]) {
     const file = req.files['archivoMod'][0];
     const scan = scanModArchive(file.buffer, file.originalname);
     if (!scan.ok) {
@@ -4163,8 +4257,8 @@ app.post('/api/ia-mods', express.json({ limit: '256kb' }), async (req, res) => {
     const groqKey = process.env.GROQ_API_KEY;
 
     if (gemKey) {
-      const primary = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
-      let alts = [primary, 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro'];
+      const primary = String(process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim();
+      let alts = [primary, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-pro'];
       // Descubrir modelos reales de la key
       try {
         const listed = await listGeminiModels(gemKey);
@@ -4699,6 +4793,17 @@ app.post('/cooptube/publicar', async (req, res) => {
         'Supabase: ' + escapeHtml(error.message || error.code || 'error desconocido') +
         '. Ejecutá el SQL de CoopTube en Supabase (tabla videos).', sesion, 0);
     }
+    try {
+      await notifyDiscordVideo({
+        id: row.id,
+        titulo,
+        descripcion,
+        autor: sesion.name,
+        categoria,
+        youtubeId: ytId,
+        thumbnail: thumbUrl || ('https://i.ytimg.com/vi/' + ytId + '/hqdefault.jpg')
+      }, req);
+    } catch (e) { console.error(e); }
     res.redirect('/cooptube/v/' + row.id);
   } catch (e) {
     console.error(e);
