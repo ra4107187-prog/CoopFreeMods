@@ -36,7 +36,7 @@ function rateLimitCount(key, max, windowMs) {
   recentActions.set('cnt:' + key, slot);
   return slot.n <= max;
 }
-const SESSION_SECRET = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'cfm-dev-secret-change-me';
+const SESSION_SECRET = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || ((process.env.SUPABASE_URL || '') + 'cfm-session-v1') || 'cfm-dev-secret-change-me';
 function getClientIp(req) {
   try {
     const xf = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
@@ -45,7 +45,8 @@ function getClientIp(req) {
   } catch (e) { return ''; }
 }
 function signSession(username) {
-  const exp = String(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  // 90 días
+  const exp = String(Date.now() + 90 * 24 * 60 * 60 * 1000);
   const payload = String(username) + '|' + exp;
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
   return payload + '|' + sig;
@@ -53,7 +54,7 @@ function signSession(username) {
 function verifySessionToken(token) {
   if (!token || typeof token !== 'string') return null;
   const parts = token.split('|');
-  // Nuevo formato firmado: user|exp|sig
+  // Formato firmado: user|exp|sig
   if (parts.length === 3) {
     const [username, exp, sig] = parts;
     if (!username || !/^[A-Za-z0-9_\-]{3,24}$/.test(username)) return null;
@@ -67,7 +68,8 @@ function verifySessionToken(token) {
     } catch (e) { return null; }
     return username;
   }
-  // Formato viejo inseguro (solo nombre): RECHAZADO — hay que volver a iniciar sesión
+  // Cookie antigua (solo nombre): se acepta para no desloguear a nadie; se renueva sola
+  if (/^[A-Za-z0-9_\-]{3,24}$/.test(token)) return token;
   return null;
 }
 function setSessionCookie(res, username) {
@@ -76,7 +78,7 @@ function setSessionCookie(res, username) {
     httpOnly: true,
     sameSite: 'lax',
     secure: !!secure,
-    maxAge: 30 * 24 * 60 * 60 * 1000,
+    maxAge: 90 * 24 * 60 * 60 * 1000,
     path: '/'
   });
 }
@@ -145,6 +147,16 @@ function renderPagination(baseUrl, page, totalPages, query = {}) {
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: '64kb' }));
 app.use(cookieParser());
+// Mantener sesión: renovar cookies viejas sin desloguear
+app.use((req, res, next) => {
+  try {
+    const raw = req.cookies && req.cookies.usuarioSesion;
+    if (raw && typeof raw === 'string' && raw.indexOf('|') === -1 && /^[A-Za-z0-9_\-]{3,24}$/.test(raw)) {
+      setSessionCookie(res, raw);
+    }
+  } catch (e) {}
+  next();
+});
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -809,21 +821,28 @@ async function countNotif(usuario) {
   const { count } = await supabase.from('notificaciones').select('*', { count: 'exact', head: true }).eq('usuario', usuario).eq('leido', false);
   return count || 0;
 }
-async function getSesion(req) {
+async function getSesion(req, res) {
   const raw = req.cookies.usuarioSesion || null;
   const name = verifySessionToken(raw);
   if (!name) return { name: null, banneado: false, esMod: false, superAdmin: false };
-  const { data } = await supabase.from('usuarios').select('usuario,banneado,last_ip,registro_ip,fecha_registro').eq('usuario', name).single();
-  if (!data) return { name: null, banneado: false, esMod: false, superAdmin: false };
+  // Solo columnas que siempre existen (last_ip/etc. rompían la sesión si faltaba el SQL)
+  const { data, error } = await supabase.from('usuarios').select('usuario,banneado').eq('usuario', name).maybeSingle();
+  if (error || !data) return { name: null, banneado: false, esMod: false, superAdmin: false };
   if (data.banneado) {
     return { name: data.usuario, banneado: true, esMod: false, superAdmin: false };
   }
   const esMod = isMod(data.usuario);
   const superAdmin = !!(esMod && req.cookies && req.cookies.cfm_super_admin === '1');
-  // actualizar IP en segundo plano
+  // Renovar cookie firmada si venía en formato viejo o está por vencer
+  try {
+    if (res && typeof res.cookie === 'function') {
+      const needsRefresh = !raw || raw.indexOf('|') === -1;
+      if (needsRefresh) setSessionCookie(res, data.usuario);
+    }
+  } catch (e) {}
   const ip = getClientIp(req);
   if (ip) touchUserIp(data.usuario, ip).catch(() => {});
-  return { name: data.usuario, banneado: false, esMod, superAdmin, fechaRegistro: data.fecha_registro || null };
+  return { name: data.usuario, banneado: false, esMod, superAdmin };
 }
 /** Puede editar contenido ajeno (mod/foro/video) si es autor, collab o super admin activo */
 function canManageContent(sesion, autor, collabs) {
