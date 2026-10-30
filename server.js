@@ -3,6 +3,7 @@ const multer = require('multer');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { supabase } = require('./lib/supabase');
 const { estilosCSS } = require('./lib/styles');
 
@@ -15,8 +16,105 @@ function rateLimit(key, ms = 2000) {
   const last = recentActions.get(key) || 0;
   if (now - last < ms) return false;
   recentActions.set(key, now);
+  // limpieza simple
+  if (recentActions.size > 5000) {
+    for (const [k, ts] of recentActions) {
+      if (now - ts > 3600000) recentActions.delete(k);
+    }
+  }
   return true;
 }
+/** Cuenta intentos en ventana (anti fuerza bruta) */
+function rateLimitCount(key, max, windowMs) {
+  const now = Date.now();
+  const slot = recentActions.get('cnt:' + key) || { n: 0, start: now };
+  if (now - slot.start > windowMs) {
+    slot.n = 0;
+    slot.start = now;
+  }
+  slot.n += 1;
+  recentActions.set('cnt:' + key, slot);
+  return slot.n <= max;
+}
+const SESSION_SECRET = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'cfm-dev-secret-change-me';
+function getClientIp(req) {
+  try {
+    const xf = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
+    const ip = xf || req.headers['x-real-ip'] || req.socket?.remoteAddress || '';
+    return String(ip).replace('::ffff:', '').slice(0, 64);
+  } catch (e) { return ''; }
+}
+function signSession(username) {
+  const exp = String(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const payload = String(username) + '|' + exp;
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
+  return payload + '|' + sig;
+}
+function verifySessionToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('|');
+  // Nuevo formato firmado: user|exp|sig
+  if (parts.length === 3) {
+    const [username, exp, sig] = parts;
+    if (!username || !/^[A-Za-z0-9_\-]{3,24}$/.test(username)) return null;
+    const expN = parseInt(exp, 10);
+    if (!expN || Date.now() > expN) return null;
+    const expect = crypto.createHmac('sha256', SESSION_SECRET).update(username + '|' + exp).digest('hex');
+    try {
+      const a = Buffer.from(String(sig));
+      const b = Buffer.from(String(expect));
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    } catch (e) { return null; }
+    return username;
+  }
+  // Formato viejo inseguro (solo nombre): RECHAZADO — hay que volver a iniciar sesión
+  return null;
+}
+function setSessionCookie(res, username) {
+  const secure = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  res.cookie('usuarioSesion', signSession(username), {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: !!secure,
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path: '/'
+  });
+}
+function clearSessionCookie(res) {
+  res.clearCookie('usuarioSesion', { path: '/' });
+}
+function validUsername(u) {
+  return typeof u === 'string' && /^[A-Za-z0-9_\-]{3,20}$/.test(u);
+}
+async function isIpBanned(ip) {
+  if (!ip || ip === '127.0.0.1' || ip === '::1') return false;
+  try {
+    const { data } = await supabase.from('ip_bans').select('ip').eq('ip', ip).maybeSingle();
+    return !!(data && data.ip);
+  } catch (e) { return false; }
+}
+async function banIp(ip, reason, bannedBy) {
+  if (!ip) return;
+  try {
+    await supabase.from('ip_bans').upsert({
+      ip,
+      reason: (reason || 'Ban de moderación').slice(0, 200),
+      banned_by: bannedBy || 'mod',
+      created_at: new Date().toISOString()
+    });
+  } catch (e) { console.error('banIp', e.message || e); }
+}
+async function unbanIp(ip) {
+  if (!ip) return;
+  try { await supabase.from('ip_bans').delete().eq('ip', ip); } catch (e) {}
+}
+async function touchUserIp(username, ip) {
+  if (!username || !ip) return;
+  try {
+    await supabase.from('usuarios').update({ last_ip: ip }).eq('usuario', username);
+  } catch (e) {}
+}
+
 function paginateList(items, page, perPage = 30) {
   const total = items.length;
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -47,6 +145,14 @@ function renderPagination(baseUrl, page, totalPages, query = {}) {
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: '64kb' }));
 app.use(cookieParser());
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('X-XSS-Protection', '0');
+  next();
+});
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
 const upload = multer({
@@ -76,6 +182,107 @@ function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+/** Compartir interno: mods, foros y videos */
+function extractShareRefs(text) {
+  const s = String(text || '');
+  const refs = [];
+  const add = (type, id) => {
+    const n = parseInt(id, 10);
+    if (!n || n < 1) return;
+    refs.push({ type, id: n });
+  };
+  let m;
+  const reMod = /(?:https?:\/\/[^\s<>"']+)?\/mod\/(\d+)\b/gi;
+  const reForo = /(?:https?:\/\/[^\s<>"']+)?\/foros\/tema\/(\d+)\b/gi;
+  const reVid = /(?:https?:\/\/[^\s<>"']+)?\/cooptube\/v\/(\d+)\b/gi;
+  const reSc = /\[(mod|foro|video|tema):(\d+)\]/gi;
+  while ((m = reMod.exec(s))) add('mod', m[1]);
+  while ((m = reForo.exec(s))) add('foro', m[1]);
+  while ((m = reVid.exec(s))) add('video', m[1]);
+  while ((m = reSc.exec(s))) add(m[1] === 'tema' ? 'foro' : m[1], m[2]);
+  return refs;
+}
+async function fetchShareEmbeds(texts) {
+  const all = [];
+  (Array.isArray(texts) ? texts : [texts]).forEach(tx => extractShareRefs(tx).forEach(r => all.push(r)));
+  const map = {};
+  const mods = [...new Set(all.filter(r => r.type === 'mod').map(r => r.id))];
+  const foros = [...new Set(all.filter(r => r.type === 'foro').map(r => r.id))];
+  const videos = [...new Set(all.filter(r => r.type === 'video').map(r => r.id))];
+  try {
+    if (mods.length) {
+      const { data } = await supabase.from('mods').select('id,titulo,autor,descargas,rutas_imagenes,categoria').in('id', mods);
+      (data || []).forEach(row => {
+        const img = Array.isArray(row.rutas_imagenes) && row.rutas_imagenes[0] ? row.rutas_imagenes[0] : '';
+        map['mod:' + row.id] = {
+          type: 'mod', id: row.id, title: row.titulo || 'Mod',
+          meta: '@' + (row.autor || '') + ' · ⬇️ ' + (row.descargas || 0) + (row.categoria ? ' · ' + row.categoria : ''),
+          href: '/mod/' + row.id, image: img, badge: '📦 MOD'
+        };
+      });
+    }
+  } catch (e) { console.error('share mods', e); }
+  try {
+    if (foros.length) {
+      const { data } = await supabase.from('foro_temas').select('id,titulo,autor,vistas').in('id', foros);
+      (data || []).forEach(row => {
+        map['foro:' + row.id] = {
+          type: 'foro', id: row.id, title: row.titulo || 'Foro',
+          meta: '@' + (row.autor || '') + ' · 👁 ' + (row.vistas || 0),
+          href: '/foros/tema/' + row.id, image: '', badge: '💬 FORO'
+        };
+      });
+    }
+  } catch (e) { console.error('share foros', e); }
+  try {
+    if (videos.length) {
+      const { data } = await supabase.from('videos').select('id,titulo,autor,vistas,thumbnail,youtube_id').in('id', videos);
+      (data || []).forEach(row => {
+        const img = row.thumbnail || (row.youtube_id ? ('https://i.ytimg.com/vi/' + row.youtube_id + '/hqdefault.jpg') : '');
+        map['video:' + row.id] = {
+          type: 'video', id: row.id, title: row.titulo || 'Video',
+          meta: '@' + (row.autor || '') + ' · 👁 ' + (row.vistas || 0),
+          href: '/cooptube/v/' + row.id, image: img, badge: '📺 VIDEO'
+        };
+      });
+    }
+  } catch (e) { console.error('share videos', e); }
+  return map;
+}
+function renderShareCard(emb) {
+  if (!emb) return '';
+  const img = emb.image
+    ? '<img class="cfm-share-thumb" src="' + escapeHtml(emb.image) + '" alt="">'
+    : '<div class="cfm-share-thumb cfm-share-ph">' + (emb.type === 'foro' ? '💬' : emb.type === 'video' ? '📺' : '📦') + '</div>';
+  return '<a class="cfm-share-card" href="' + escapeHtml(emb.href) + '">' + img +
+    '<div class="cfm-share-body"><span class="cfm-share-badge">' + escapeHtml(emb.badge) + '</span>' +
+    '<div class="cfm-share-title">' + escapeHtml(emb.title) + '</div>' +
+    '<div class="cfm-share-meta">' + escapeHtml(emb.meta) + '</div></div></a>';
+}
+function renderUserTextWithShares(raw, embedMap) {
+  const text = cleanText(raw);
+  const refs = extractShareRefs(raw);
+  const seen = new Set();
+  const cards = [];
+  for (const r of refs) {
+    const k = r.type + ':' + r.id;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    if (embedMap && embedMap[k]) cards.push(renderShareCard(embedMap[k]));
+  }
+  return '<span class="cfm-user-text">' + text + '</span>' +
+    (cards.length ? '<div class="cfm-share-embeds">' + cards.join('') + '</div>' : '');
+}
+function shareBarHtml(kind, id) {
+  const path = kind === 'mod' ? ('/mod/' + id) : kind === 'foro' ? ('/foros/tema/' + id) : ('/cooptube/v/' + id);
+  const code = kind === 'mod' ? ('[mod:' + id + ']') : kind === 'foro' ? ('[foro:' + id + ']') : ('[video:' + id + ']');
+  return '<button type="button" class="btn-gray" style="font-size:13px;padding:6px 12px;" data-path="' +
+    escapeHtml(path) + '" data-code="' + escapeHtml(code) + '" onclick="cfmCopyShare(this)">🔗 Compartir</button>';
+}
+const SHARE_HINT = '<p class="cfm-share-hint">💡 Pegá un link de la web (<code>/mod/12</code>, <code>/foros/tema/3</code>, <code>/cooptube/v/5</code>) o <code>[mod:12]</code> <code>[foro:3]</code> <code>[video:5]</code> y se muestra como tarjeta.</p>';
+const CFM_SHARE_SCRIPT = '<script>function cfmCopyShare(btn){try{var path=btn.getAttribute("data-path")||"";var code=btn.getAttribute("data-code")||"";var url=(location.origin||"")+path;var text=url+(code?"\\n"+code:"");if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){var o=btn.textContent;btn.textContent="✅ Copiado";setTimeout(function(){btn.textContent=o},1600)}).catch(function(){prompt("Copiá este link:",text)})}else{prompt("Copiá este link:",text)}}catch(e){}}</script>';
+
 function siteBaseUrl(req) {
   if (process.env.SITE_URL) return String(process.env.SITE_URL).replace(/\/$/, '');
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
@@ -603,13 +810,20 @@ async function countNotif(usuario) {
   return count || 0;
 }
 async function getSesion(req) {
-  const name = req.cookies.usuarioSesion || null;
+  const raw = req.cookies.usuarioSesion || null;
+  const name = verifySessionToken(raw);
   if (!name) return { name: null, banneado: false, esMod: false, superAdmin: false };
-  const { data } = await supabase.from('usuarios').select('usuario,banneado').eq('usuario', name).single();
+  const { data } = await supabase.from('usuarios').select('usuario,banneado,last_ip,registro_ip,fecha_registro').eq('usuario', name).single();
   if (!data) return { name: null, banneado: false, esMod: false, superAdmin: false };
+  if (data.banneado) {
+    return { name: data.usuario, banneado: true, esMod: false, superAdmin: false };
+  }
   const esMod = isMod(data.usuario);
   const superAdmin = !!(esMod && req.cookies && req.cookies.cfm_super_admin === '1');
-  return { name: data.usuario, banneado: !!data.banneado, esMod, superAdmin };
+  // actualizar IP en segundo plano
+  const ip = getClientIp(req);
+  if (ip) touchUserIp(data.usuario, ip).catch(() => {});
+  return { name: data.usuario, banneado: false, esMod, superAdmin, fechaRegistro: data.fecha_registro || null };
 }
 /** Puede editar contenido ajeno (mod/foro/video) si es autor, collab o super admin activo */
 function canManageContent(sesion, autor, collabs) {
@@ -718,7 +932,7 @@ function navbar(sesion, nNotif, extra, opts) {
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   const logoSrc = opts.logo || '/public/logo.png';
   const logoHref = opts.logoHref || '/';
-  return `<script src="/public/cfm-prefs.js?v=11"></script>
+  return `<script src="/public/cfm-prefs.js?v=11"></script>${CFM_SHARE_SCRIPT}
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
@@ -1422,6 +1636,108 @@ app.get('/', async (req, res) => {
 });
 
 
+
+/** Carrusel de mods destacados (inicio y /mods) */
+function renderFeaturedCarouselBlock(featuredMods, sesion, opts) {
+  opts = opts || {};
+  const title = opts.title || '✨ Mods destacados';
+  const manage = sesion && sesion.esMod
+    ? `<a href="/mods-destacados" class="btn-gray" style="font-size:12px;padding:6px 12px;">Gestionar (mod)</a>`
+    : '';
+  if (!featuredMods || !featuredMods.length) {
+    return `<div class="home-section featured-section" style="margin-bottom:18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+        <h2 style="margin:0;color:#fff;font-size:18px;">${title}</h2>${manage}
+      </div>
+      <p style="color:#9ca3af;font-size:13px;">Todavía no hay mods destacados.${sesion && sesion.esMod ? ' <a href="/mods-destacados" style="color:#93c5fd;">Elegir destacados</a>' : ''}</p>
+    </div>`;
+  }
+  const card = (m) => {
+    const foto = m.rutasImagenes && m.rutasImagenes[0];
+    const img = foto
+      ? `<img class="featured-icon" src="${escapeHtml(foto)}" alt="">`
+      : `<div class="featured-icon featured-icon-ph">📦</div>`;
+    const stars = m.ratingCount
+      ? Array.from({ length: 5 }, (_, i) => i < Math.round(m.ratingAvg) ? '★' : '☆').join('')
+      : '☆☆☆☆☆';
+    const desc = escapeHtml((m.descripcion || '').slice(0, 120)) + ((m.descripcion || '').length > 120 ? '…' : '');
+    return `<a href="/mod/${m.id}" class="featured-card">
+      ${img}
+      <div class="featured-body">
+        <h3 class="featured-title">${escapeHtml(m.titulo)}</h3>
+        <p class="featured-desc">${desc}</p>
+        <div class="featured-meta"><span class="featured-author">${escapeHtml(m.autor)}</span>
+          <span class="featured-sep">·</span>
+          <span>${escapeHtml(m.fechaCreacion || '')}</span>
+          <span class="featured-sep">·</span>
+          <span>⬇️ ${m.descargas || 0}</span></div>
+        <div class="featured-stars">${stars}</div>
+      </div>
+    </a>`;
+  };
+  const per = 2;
+  const slides = [];
+  for (let i = 0; i < featuredMods.length; i += per) slides.push(featuredMods.slice(i, i + per));
+  const slidesHtml = slides.map((pair, si) =>
+    `<div class="featured-slide${si === 0 ? ' is-active' : ''}" data-slide="${si}">
+      <div class="featured-slide-inner">${pair.map(card).join('')}</div>
+    </div>`
+  ).join('');
+  const dots = slides.map((_, i) =>
+    `<button type="button" class="featured-dot${i === 0 ? ' is-active' : ''}" data-dot="${i}" aria-label="Página ${i + 1}"></button>`
+  ).join('');
+  const cid = opts.id || 'featuredCarousel';
+  return `<div class="home-section featured-section" style="margin-bottom:18px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+      <h2 style="margin:0;color:#fff;font-size:18px;">${title}</h2>
+      <div style="display:flex;gap:8px;align-items:center;">${manage}</div>
+    </div>
+    <div class="featured-carousel" id="${cid}" data-count="${slides.length}">
+      <button type="button" class="featured-nav featured-prev" aria-label="Anterior">‹</button>
+      <div class="featured-viewport"><div class="featured-track">${slidesHtml}</div></div>
+      <button type="button" class="featured-nav featured-next" aria-label="Siguiente">›</button>
+      <div class="featured-dots">${dots}</div>
+    </div>
+    <script>
+    (function(){
+      var root = document.getElementById('${cid}');
+      if (!root) return;
+      var slides = root.querySelectorAll('.featured-slide');
+      var dots = root.querySelectorAll('.featured-dot');
+      var n = slides.length;
+      if (n < 2) { root.querySelectorAll('.featured-nav').forEach(function(el){ el.style.display='none'; }); return; }
+      var idx = 0, timer = null, paused = false;
+      function go(i) {
+        idx = (i + n) % n;
+        for (var s = 0; s < slides.length; s++) {
+          slides[s].classList.toggle('is-active', s === idx);
+          if (dots[s]) dots[s].classList.toggle('is-active', s === idx);
+        }
+      }
+      function next(){ go(idx+1); }
+      function prev(){ go(idx-1); }
+      function start(){ stop(); timer = setInterval(function(){ if (!paused) next(); }, 5000); }
+      function stop(){ if (timer) clearInterval(timer); timer = null; }
+      root.querySelector('.featured-next').addEventListener('click', function(){ next(); start(); });
+      root.querySelector('.featured-prev').addEventListener('click', function(){ prev(); start(); });
+      for (var d = 0; d < dots.length; d++) (function(di){ dots[di].addEventListener('click', function(){ go(di); start(); }); })(d);
+      root.addEventListener('mouseenter', function(){ paused = true; });
+      root.addEventListener('mouseleave', function(){ paused = false; });
+      var x0 = null;
+      root.addEventListener('touchstart', function(e){ x0 = e.touches[0].clientX; paused = true; }, {passive:true});
+      root.addEventListener('touchend', function(e){
+        if (x0 === null) return;
+        var dx = e.changedTouches[0].clientX - x0;
+        if (Math.abs(dx) > 40) { if (dx < 0) next(); else prev(); }
+        x0 = null; paused = false; start();
+      }, {passive:true});
+      start();
+    })();
+    </script>
+  </div>`;
+}
+
+
 app.get('/mods', async (req, res) => {
   try {
     const sesion = await getSesion(req);
@@ -1453,9 +1769,16 @@ app.get('/mods', async (req, res) => {
     }
     const pg = paginateList(mods, req.query.page, 30);
     const top1Id = await getTop1ModId();
+    let featuredModsPage = [];
+    try {
+      const { data: feat } = await supabase.from('mods').select('*').eq('featured', true).order('id', { ascending: false }).limit(8);
+      featuredModsPage = (feat || []).map(mapMod).filter(Boolean).slice(0, 8);
+    } catch (e) {}
+    const featuredBlock = renderFeaturedCarouselBlock(featuredModsPage, sesion, { id: 'featuredCarouselMods', title: '✨ Mods destacados' });
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mods | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
+        ${featuredBlock}
         <form action="/mods" method="GET" class="filter-bar">
           <input type="text" name="buscar" placeholder="Buscar mods o ID..." value="${escapeHtml(req.query.buscar || '')}">
           <select name="version">
@@ -1649,6 +1972,7 @@ app.get('/mod/:id', async (req, res) => {
     const roots = comments.filter(c => !c.parentId);
     const repliesOf = id => comments.filter(c => c.parentId === id);
     const canDelComment = (c) => sesion.name && (c.usuario === sesion.name || sesion.esMod);
+    const shareEmbedMap = await fetchShareEmbeds(comments.map(c => c.texto || ''));
     let comentariosHTML = roots.map(c => {
       const del = canDelComment(c) ? `<a href="/delete-comment/${mod.id}/${encodeURIComponent(c.id)}" class="btn-delete" onclick="return confirm('¿Borrar comentario?')">Eliminar</a>` : '';
       const replyForm = sesion.name && !sesion.banneado
@@ -1662,18 +1986,19 @@ app.get('/mod/:id', async (req, res) => {
       const replies = repliesOf(c.id).map(r => {
         const delR = canDelComment(r) ? `<a href="/delete-comment/${mod.id}/${encodeURIComponent(r.id)}" class="btn-delete">Eliminar</a>` : '';
         return `<div class="comment-reply"><a href="/user/${escapeHtml(r.usuario)}" class="author" style="font-size:12px;">@${escapeHtml(r.usuario)}</a> ${delR}
-          <p style="margin:4px 0 0;font-size:12px;color:#9ca3af;">${cleanText(r.texto)}</p></div>`;
+          <div style="margin:4px 0 0;font-size:12px;color:#9ca3af;">${renderUserTextWithShares(r.texto, shareEmbedMap)}</div></div>`;
       }).join('');
       return `<div class="comment-box"><a href="/user/${escapeHtml(c.usuario)}" class="author">@${escapeHtml(c.usuario)}</a> ${del}
-        <p style="margin:5px 0 0;font-size:14px;color:#ced4da;">${cleanText(c.texto)}</p>${replies}${replyForm}</div>`;
+        <div style="margin:5px 0 0;font-size:14px;color:#ced4da;">${renderUserTextWithShares(c.texto, shareEmbedMap)}</div>${replies}${replyForm}</div>`;
     }).join('') || '<p style="color:#9ca3af;">No hay comentarios.</p>';
 
     const canEdit = canManageContent(sesion, mod.autor, mod.colaboradores);
     const canDelete = canEdit || sesion.esMod;
     const bEdit = canEdit ? `<a href="/edit-mod/${mod.id}" class="btn-blue" style="font-size:13px;padding:6px 12px;">✏️ Editar${sesion.superAdmin && sesion.name !== mod.autor ? ' (super admin)' : ''}</a>` : '';
     const bDel = canDelete ? `<a href="/delete-mod/${mod.id}" class="btn-delete" style="padding:8px 12px;" onclick="return confirm('¿Eliminar este mod?')">🗑️ Eliminar mod</a>` : '';
+    const bShare = shareBarHtml('mod', mod.id);
     const cajaCom = (sesion.name && !sesion.banneado)
-      ? `<form action="/comment/${mod.id}" method="POST"><textarea name="ctext" placeholder="Escribe un comentario... (usá @usuario para mencionar)" rows="2" required minlength="1"></textarea><button type="submit" class="btn-blue">💬 Comentar</button></form>`
+      ? `<form action="/comment/${mod.id}" method="POST"><textarea name="ctext" placeholder="Comentario… @user · /mod/12 · [foro:3] · [video:5]" rows="2" required minlength="1"></textarea>${SHARE_HINT}<button type="submit" class="btn-blue">💬 Comentar</button></form>`
       : sesion.banneado ? '<p style="color:#f87171;">Cuenta baneada: no puedes comentar.</p>'
       : '<p><a href="/login" style="color:#ff3333;">Inicia sesión</a> para comentar.</p>';
 
@@ -1683,7 +2008,7 @@ app.get('/mod/:id', async (req, res) => {
       const delR = (sesion.name && (sesion.name === r.usuario || sesion.esMod))
         ? ` <a href="/review-borrar/${mod.id}/${encodeURIComponent(r.id)}" style="color:#f87171;font-size:11px;" onclick="return confirm('¿Borrar reseña?')">Borrar</a>` : '';
       return `<div class="comment-box"><b style="color:#fbbf24;">${starsHtml(r.estrellas)}</b> · <a href="/user/${escapeHtml(r.usuario)}" class="author">@${escapeHtml(r.usuario)}</a>${delR}
-        <p style="margin:6px 0 0;color:#ced4da;font-size:14px;">${escapeHtml(r.texto || '')}</p></div>`;
+        <div style="margin:6px 0 0;color:#ced4da;font-size:14px;">${renderUserTextWithShares(r.texto, shareEmbedMap)}</div></div>`;
     }).join('') || '<p style="color:#9ca3af;">Todavía no hay reseñas. ¡Sé el primero!</p>';
     let reviewForm = '';
     if (sesion.name && !sesion.banneado && !yaReview) {
@@ -1739,7 +2064,7 @@ app.get('/mod/:id', async (req, res) => {
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
             <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:16px;padding:10px 16px;background:#1f2937;border-radius:8px;border:1px solid #374151;">👍 ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
-            ${bEdit}${bDel}${bSemana}${bFeatured}
+            ${bShare}${bEdit}${bDel}${bSemana}${bFeatured}
           </div>
         </div>
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:25px;">
@@ -1900,14 +2225,29 @@ app.get('/ban/:username', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Esta acción es solo para moderadores.', sesion, 0);
   if (req.params.username === MODERADOR) return pageError(res, 403, 'No permitido', 'No se puede realizar esta acción.', sesion, 0);
-  await supabase.from('usuarios').update({ banneado: true }).eq('usuario', req.params.username);
-  res.redirect('/user/' + req.params.username);
+  const username = req.params.username;
+  await supabase.from('usuarios').update({ banneado: true }).eq('usuario', username);
+  // Anti reincidencia: banear IPs conocidas de esa cuenta
+  try {
+    const { data: u } = await supabase.from('usuarios').select('last_ip,registro_ip').eq('usuario', username).maybeSingle();
+    const ips = new Set([u && u.last_ip, u && u.registro_ip].filter(Boolean));
+    for (const ip of ips) {
+      await banIp(ip, 'Ban de cuenta @' + username, sesion.name);
+    }
+  } catch (e) { console.error('ban ips', e); }
+  res.redirect('/user/' + username);
 });
 app.get('/unban/:username', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.esMod) return pageError(res, 403, 'Solo moderadores', 'Esta acción es solo para moderadores.', sesion, 0);
-  await supabase.from('usuarios').update({ banneado: false }).eq('usuario', req.params.username);
-  res.redirect('/user/' + req.params.username);
+  const username = req.params.username;
+  await supabase.from('usuarios').update({ banneado: false }).eq('usuario', username);
+  try {
+    const { data: u } = await supabase.from('usuarios').select('last_ip,registro_ip').eq('usuario', username).maybeSingle();
+    if (u && u.last_ip) await unbanIp(u.last_ip);
+    if (u && u.registro_ip) await unbanIp(u.registro_ip);
+  } catch (e) {}
+  res.redirect('/user/' + username);
 });
 
 
@@ -1975,7 +2315,10 @@ app.get('/publish', async (req, res) => {
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Publicar | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
     <div class="form-box"><h2>🚀 Publicar Mod</h2>
-      <form action="/publish" method="POST" enctype="multipart/form-data">
+      <form id="cfm-mod-form" action="/publish" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="archivo_path_direct" value="">
+        <input type="hidden" name="archivo_nombre_direct" value="">
+        <input type="hidden" name="archivo_peso_direct" value="">
         <label>Nombre:</label><input type="text" name="titulo" required>
         <label>Versión:</label><select name="version"><option value="SM64 Co-op DX">SM64 Co-op DX</option><option value="SM64 EX Co-op">SM64 EX Co-op</option><option value="DX + EX">DX + EX</option></select>
         <label>Categoría:</label><select name="categoria">
@@ -2005,12 +2348,74 @@ app.get('/publish', async (req, res) => {
         <input type="file" name="imagenesMod" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif" multiple>
         <button type="submit" class="btn-red" style="width:100%;">Publicar</button>
       </form>
-    </div></body></html>`);
+    </div>
+
+<script>
+(function(){
+  var LIMIT = 3.5 * 1024 * 1024;
+  var form = document.getElementById('cfm-mod-form');
+  if (!form) return;
+  var fileInput = form.querySelector('input[name="archivoMod"]');
+  var statusEl = document.getElementById('cfm-upload-status');
+  var pathInput = form.querySelector('input[name="archivo_path_direct"]');
+  var nameInput = form.querySelector('input[name="archivo_nombre_direct"]');
+  var sizeInput = form.querySelector('input[name="archivo_peso_direct"]');
+  if (!fileInput) return;
+  form.addEventListener('submit', async function(ev) {
+    var f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    if (f.size <= LIMIT) return;
+    ev.preventDefault();
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.color = '#93c5fd';
+      statusEl.textContent = 'Subiendo archivo grande directo a la nube (' + (f.size/1024/1024).toFixed(1) + ' MB)… no cierres la pestaña.';
+    }
+    try {
+      var meta = await fetch('/api/signed-upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: f.name, size: f.size, contentType: f.type || 'application/octet-stream' })
+      }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }); });
+      if (!meta.ok || !meta.j.signedUrl) throw new Error((meta.j && meta.j.error) || 'No se pudo obtener URL de subida');
+      var put = await fetch(meta.j.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': f.type || 'application/octet-stream', 'x-upsert': 'true' },
+        body: f
+      });
+      if (!put.ok) {
+        var txt = await put.text().catch(function(){ return ''; });
+        throw new Error('Fallo al subir (' + put.status + ') ' + txt.slice(0, 120));
+      }
+      if (pathInput) pathInput.value = meta.j.path || '';
+      if (nameInput) nameInput.value = f.name;
+      if (sizeInput) sizeInput.value = (f.size / (1024 * 1024)).toFixed(1) + ' MB';
+      fileInput.value = '';
+      if (statusEl) { statusEl.style.color = '#86efac'; statusEl.textContent = 'Archivo subido. Guardando…'; }
+      form.submit();
+    } catch (e) {
+      if (statusEl) {
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = 'Error: ' + (e.message || e) + '. Usá link externo o un archivo más chico.';
+      } else alert('Error al subir: ' + (e.message || e));
+    }
+  });
+})();
+</script>
+
+</body></html>`);
 });
+
+
+
 
 app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name: 'imagenesMod', maxCount: 4 }]), async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  const ip = getClientIp(req);
+  if (await isIpBanned(ip)) return pageError(res, 403, 'Bloqueado', 'Esta red está bloqueada por abuso.', sesion, 0);
+  if (!rateLimitCount('pub:' + sesion.name, 8, 60 * 60 * 1000)) return pageError(res, 429, 'Límite', 'Demasiados mods publicados en poco tiempo.', sesion, 0);
   if (!rateLimit('publish:' + sesion.name, 3000)) return pageError(res, 429, 'Demasiado rápido', 'Esperá un momento antes de publicar de nuevo.', sesion, 0);
   try {
     const arc = req.files && req.files['archivoMod'] && req.files['archivoMod'][0];
@@ -2038,12 +2443,19 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
     let filePath = '';
     let nombreReal = '';
     let peso = 'Link externo';
-    // Preferimos archivo si hay; si no, el link
+    // Preferimos archivo si hay; si no, subida directa; si no, link
+    const directPath = cleanText(req.body.archivo_path_direct || '').slice(0, 240);
+    const directName = cleanText(req.body.archivo_nombre_direct || '').slice(0, 120);
+    const directPeso = cleanText(req.body.archivo_peso_direct || '').slice(0, 32);
     if (arc) {
       filePath = `${sesion.name}/${ts}-${arc.originalname}`;
       await uploadToStorage('mods-files', filePath, arc.buffer, arc.mimetype || 'application/octet-stream');
       nombreReal = arc.originalname;
       peso = (arc.size / (1024 * 1024)).toFixed(1) + ' MB';
+    } else if (directPath && directPath.startsWith(sesion.name + '/')) {
+      filePath = directPath;
+      nombreReal = directName || 'mod.zip';
+      peso = directPeso || '—';
     } else {
       filePath = linkExterno;
       nombreReal = 'link-externo';
@@ -2138,7 +2550,10 @@ app.get('/edit-mod/:id', async (req, res) => {
     ${navbar(sesion, nNotif)}
     <div class="form-box"><h2>✏️ Editar mod ${sesion.superAdmin ? '<span class="mod-badge" style="background:#7c3aed;">SUPER ADMIN</span>' : ''}</h2>
       <p style="color:#9ca3af;font-size:13px;">ID #${mod.id} · Autor @${escapeHtml(mod.autor)}</p>
-      <form action="/edit-mod/${mod.id}" method="POST" enctype="multipart/form-data">
+      <form id="cfm-mod-form" action="/edit-mod/${mod.id}" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="archivo_path_direct" value="">
+        <input type="hidden" name="archivo_nombre_direct" value="">
+        <input type="hidden" name="archivo_peso_direct" value="">
         <label>Título:</label><input type="text" name="titulo" value="${escapeHtml(mod.titulo)}" required maxlength="120">
         <label>Descripción:</label><textarea name="descripcion" required rows="5">${escapeHtml(mod.descripcion)}</textarea>
         <label>Versión del juego:</label><select name="version">${verOpts}</select>
@@ -2147,10 +2562,81 @@ app.get('/edit-mod/:id', async (req, res) => {
         <label>Colaboradores (máx. 4, deben existir, separados por coma):</label>
         <input type="text" name="colaboradores" value="${escapeHtml(collabStr)}" placeholder="Ej: Ellos, jugador2" maxlength="120">
         ${statsFields}
-        <label>Nuevo archivo (opcional):</label><input type="file" name="archivoMod" accept=".zip,.7z,.rar,.lua">
+        <label>Nuevo archivo (opcional):</label>
+        <input type="file" name="archivoMod" accept=".zip,.7z,.rar,.lua">
+        <p style="color:#9ca3af;font-size:12px;margin:4px 0 0;">Archivos grandes (más de ~3,5 MB) se suben directo a la nube para evitar el error 413 de Vercel. Máx. 50 MB. Si falla, usá link externo.</p>
+        <p id="cfm-upload-status" style="display:none;font-size:13px;margin:8px 0;"></p>
         <label>Notas del update:</label><input type="text" name="notasUpdate" placeholder="Qué cambió en esta versión">
         <button type="submit" class="btn-blue" style="width:100%;">💾 Guardar cambios</button>
       </form>
+
+<script>
+(function(){
+  var LIMIT = 3.5 * 1024 * 1024; // debajo del límite de Vercel (~4.5MB)
+  var form = document.getElementById('cfm-mod-form');
+  if (!form) return;
+  var fileInput = form.querySelector('input[name="archivoMod"]');
+  var statusEl = document.getElementById('cfm-upload-status');
+  var pathInput = form.querySelector('input[name="archivo_path_direct"]');
+  var nameInput = form.querySelector('input[name="archivo_nombre_direct"]');
+  var sizeInput = form.querySelector('input[name="archivo_peso_direct"]');
+  if (!fileInput) return;
+
+  form.addEventListener('submit', async function(ev) {
+    var f = fileInput.files && fileInput.files[0];
+    if (!f) return; // sin archivo nuevo
+    if (f.size <= LIMIT) return; // multer normal
+
+    ev.preventDefault();
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.color = '#93c5fd';
+      statusEl.textContent = 'Subiendo archivo grande directo a la nube (' + (f.size/1024/1024).toFixed(1) + ' MB)… no cierres la pestaña.';
+    }
+    try {
+      var meta = await fetch('/api/signed-upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: f.name, size: f.size, contentType: f.type || 'application/octet-stream' })
+      }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }); });
+      if (!meta.ok || !meta.j.signedUrl) {
+        throw new Error((meta.j && meta.j.error) || 'No se pudo obtener URL de subida');
+      }
+      var put = await fetch(meta.j.signedUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': f.type || 'application/octet-stream',
+          'x-upsert': 'true'
+        },
+        body: f
+      });
+      if (!put.ok) {
+        var txt = await put.text().catch(function(){ return ''; });
+        throw new Error('Fallo al subir (' + put.status + ') ' + txt.slice(0, 120));
+      }
+      if (pathInput) pathInput.value = meta.j.path || '';
+      if (nameInput) nameInput.value = f.name;
+      if (sizeInput) sizeInput.value = (f.size / (1024 * 1024)).toFixed(1) + ' MB';
+      // no reenviar el archivo por Vercel
+      fileInput.value = '';
+      if (statusEl) {
+        statusEl.style.color = '#86efac';
+        statusEl.textContent = 'Archivo subido. Guardando…';
+      }
+      form.submit();
+    } catch (e) {
+      if (statusEl) {
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = 'Error: ' + (e.message || e) + '. Probá un link externo (MediaFire/MEGA) o un archivo más chico.';
+      } else {
+        alert('Error al subir: ' + (e.message || e));
+      }
+    }
+  });
+})();
+</script>
+
       <p style="text-align:center;margin-top:14px;"><a href="/mod/${mod.id}" class="btn-gray">← Volver al mod</a></p>
     </div></body></html>`);
 });
@@ -2196,7 +2682,18 @@ app.post('/edit-mod/:id', upload.fields([{ name: 'archivoMod', maxCount: 1 }]), 
     if (fecha) update.fecha_creacion = fecha;
   }
 
-  if (req.files && req.files['archivoMod'] && req.files['archivoMod'][0]) {
+  const directPath = cleanText(req.body.archivo_path_direct || '').slice(0, 240);
+  const directName = cleanText(req.body.archivo_nombre_direct || '').slice(0, 120);
+  const directPeso = cleanText(req.body.archivo_peso_direct || '').slice(0, 32);
+  if (directPath && directPath.startsWith(sesion.name + '/')) {
+    // Subida grande directa a Supabase (evita 413 de Vercel)
+    update.nombre_archivo_real = directName || 'mod.zip';
+    update.archivo_path = directPath;
+    update.peso_archivo = directPeso || '—';
+    const hist = mod.historialActualizaciones || [];
+    hist.push({ version: 'Update ' + (hist.length + 1), fecha: new Date().toLocaleDateString('es-ES'), notas: req.body.notasUpdate || 'Update' });
+    update.historial_actualizaciones = hist;
+  } else if (req.files && req.files['archivoMod'] && req.files['archivoMod'][0]) {
     const file = req.files['archivoMod'][0];
     const scan = scanModArchive(file.buffer, file.originalname);
     if (!scan.ok) {
@@ -2317,19 +2814,37 @@ app.get('/register', (req, res) => {
 
 app.post('/register', async (req, res) => {
   try {
+    const ip = getClientIp(req);
+    if (!rateLimitCount('reg:' + ip, 5, 60 * 60 * 1000)) {
+      return pageError(res, 429, 'Demasiados registros', 'Desde esta red ya se crearon varias cuentas. Probá más tarde.', null, 0);
+    }
+    if (await isIpBanned(ip)) {
+      return pageError(res, 403, 'Registro bloqueado', 'No se pueden crear cuentas desde esta red (IP asociada a abuso). Si es un error, contactá a un moderador en Discord.', null, 0);
+    }
     const usuario = (req.body.usuario || '').trim();
     const password = req.body.password || '';
+    if (!validUsername(usuario)) {
+      return pageError(res, 400, 'Usuario inválido', '3–20 caracteres: solo letras, números, _ y -.', null, 0);
+    }
     if (password.length < 6) return pageError(res, 400, 'Contraseña corta', 'La contraseña debe tener al menos 6 caracteres.', null, 0);
-    if (!usuario || usuario.length < 3) return pageError(res, 400, 'Usuario inválido', 'Elegí un nombre de usuario válido.', null, 0);
-    const { data: existing } = await supabase.from('usuarios').select('id').eq('usuario', usuario).single();
+    if (password.length > 128) return pageError(res, 400, 'Contraseña inválida', 'Contraseña demasiado larga.', null, 0);
+    if (isMod(usuario)) return pageError(res, 400, 'Nombre reservado', 'Ese nombre no está disponible.', null, 0);
+    const { data: existing } = await supabase.from('usuarios').select('id').eq('usuario', usuario).maybeSingle();
     if (existing) return pageError(res, 400, 'Usuario existente', 'Ese nombre ya está registrado.', null, 0);
     const hash = await bcrypt.hash(password, 10);
-    const { error } = await supabase.from('usuarios').insert({
-      usuario, password: hash, descripcion: req.body.descripcion || 'Desarrollador',
-      fecha_registro: new Date().toLocaleDateString('es-ES'), seguidores: [], banneado: false
-    });
+    const insertPayload = {
+      usuario, password: hash, descripcion: cleanText(req.body.descripcion || 'Desarrollador').slice(0, 200),
+      fecha_registro: new Date().toLocaleDateString('es-ES'), seguidores: [], banneado: false,
+      registro_ip: ip || null, last_ip: ip || null
+    };
+    let { error } = await supabase.from('usuarios').insert(insertPayload);
+    if (error && /registro_ip|last_ip/i.test(error.message || '')) {
+      delete insertPayload.registro_ip;
+      delete insertPayload.last_ip;
+      ({ error } = await supabase.from('usuarios').insert(insertPayload));
+    }
     if (error) throw error;
-    res.cookie('usuarioSesion', usuario, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 });
+    setSessionCookie(res, usuario);
     res.redirect('/');
   } catch (e) { console.error(e); res.send('Error al registrar. <a href="/register">Volver</a>'); }
 });
@@ -2337,8 +2852,9 @@ app.post('/register', async (req, res) => {
 app.get('/login', (req, res) => {
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png">${estilosCSS}</head><body>
     <div class="form-box"><h2>Iniciar sesión</h2>
+      <p style="color:#9ca3af;font-size:13px;">Si actualizamos la seguridad, puede que tengas que volver a entrar.</p>
       <form action="/login" method="POST">
-        <label>Usuario:</label><input type="text" name="usuario" required>
+        <label>Usuario:</label><input type="text" name="usuario" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_\-]{3,20}" title="Letras, números, _ o -">
         <label>Contraseña:</label><input type="password" name="password" required>
         <button type="submit" class="btn-red" style="width:100%;">Ingresar</button>
       </form>
@@ -2348,11 +2864,20 @@ app.get('/login', (req, res) => {
 
 app.post('/login', async (req, res) => {
   try {
-    const { data: u } = await supabase.from('usuarios').select('*').eq('usuario', req.body.usuario).single();
+    const ip = getClientIp(req);
+    if (!rateLimitCount('login:' + ip, 20, 15 * 60 * 1000)) {
+      return pageError(res, 429, 'Demasiados intentos', 'Esperá unos minutos antes de volver a intentar.', null, 0);
+    }
+    if (await isIpBanned(ip)) {
+      return pageError(res, 403, 'Acceso bloqueado', 'Esta red está bloqueada por abuso.', null, 0);
+    }
+    const usuario = String(req.body.usuario || '').trim();
+    if (!usuario || !req.body.password) return pageError(res, 401, 'Datos incorrectos', 'Usuario o contraseña incorrectos.', null, 0);
+    const { data: u } = await supabase.from('usuarios').select('*').eq('usuario', usuario).maybeSingle();
     if (!u) return pageError(res, 401, 'Datos incorrectos', 'Usuario o contraseña incorrectos.', null, 0);
     if (u.banneado) return pageError(res, 403, 'Cuenta baneada', 'Tu cuenta está baneada.', null, 0);
     let ok = false;
-    if (u.password && u.password.startsWith('$2')) ok = await bcrypt.compare(req.body.password, u.password);
+    if (u.password && String(u.password).startsWith('$2')) ok = await bcrypt.compare(req.body.password, u.password);
     else {
       ok = u.password === req.body.password;
       if (ok) {
@@ -2361,9 +2886,14 @@ app.post('/login', async (req, res) => {
       }
     }
     if (ok) {
-      res.cookie('usuarioSesion', u.usuario, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 });
+      setSessionCookie(res, u.usuario);
+      if (ip) {
+        try { await supabase.from('usuarios').update({ last_ip: ip }).eq('usuario', u.usuario); } catch (e) {}
+      }
       res.redirect('/');
-    } else res.send('Usuario o contraseña incorrectos. <a href="/login">Volver</a>');
+    } else {
+      return pageError(res, 401, 'Datos incorrectos', 'Usuario o contraseña incorrectos.', null, 0);
+    }
   } catch (e) { res.send('Error. <a href="/login">Volver</a>'); }
 });
 
@@ -2524,7 +3054,7 @@ app.post('/discord', async (req, res) => {
 
 
 
-app.get('/logout', (req, res) => { res.clearCookie('usuarioSesion'); res.redirect('/'); });
+app.get('/logout', (req, res) => { clearSessionCookie(res); res.redirect('/'); });
 
 
 // ---------- FOROS ----------
@@ -2676,8 +3206,10 @@ app.get('/foros/tema/:id', async (req, res) => {
       modBtns += `<a href="/foros/cerrar/${id}" class="btn-gray">${tema.cerrado ? 'Abrir' : 'Cerrar'}</a> `;
     }
     if (canDelTema) modBtns += `<a href="/foros/borrar-tema/${id}" class="btn-delete" onclick="return confirm('¿Borrar tema y respuestas?')">Eliminar tema</a>`;
+    modBtns = shareBarHtml('foro', id) + (modBtns || '');
     const fecha = tema.created_at ? new Date(tema.created_at).toLocaleString('es-ES') : '';
     const allR = respuestas || [];
+    const foroShareMap = await fetchShareEmbeds([tema.contenido || ''].concat(allR.map(r => r.contenido || '')));
     const roots = allR.filter(r => !r.parent_id);
     const childrenOf = (pid) => allR.filter(r => r.parent_id === pid);
     const renderResp = (r, isChild) => {
@@ -2700,7 +3232,7 @@ app.get('/foros/tema/:id', async (req, res) => {
         ${del}
         <a href="/user/${escapeHtml(r.autor)}" class="author" style="${isChild ? 'font-size:12px;' : ''}">@${escapeHtml(r.autor)}</a>
         <span style="font-size:11px;color:#6b7280;margin-left:8px;">${rf}</span>
-        <p style="margin:8px 0 0;${font}">${cleanText(r.contenido)}</p>
+        <div style="margin:8px 0 0;${font}">${renderUserTextWithShares(r.contenido, foroShareMap)}</div>
         ${subReply}
         ${kids}
       </div>`;
@@ -2710,7 +3242,8 @@ app.get('/foros/tema/:id', async (req, res) => {
     if (tema.cerrado) replyBox = '<p style="color:#f87171;">Este tema está cerrado.</p>';
     else if (sesion.name && !sesion.banneado) {
       replyBox = `<form action="/foros/responder/${id}" method="POST">
-        <textarea name="contenido" rows="3" required minlength="1" placeholder="Escribe una respuesta..."></textarea>
+        <textarea name="contenido" rows="3" required minlength="1" placeholder="Respuesta… /mod/12 o [video:5]"></textarea>
+        ${SHARE_HINT}
         <button type="submit" class="btn-blue">Responder</button>
       </form>`;
     } else replyBox = '<p><a href="/login" style="color:#ff3333;">Inicia sesión</a> para responder.</p>';
@@ -2729,7 +3262,7 @@ app.get('/foros/tema/:id', async (req, res) => {
             </div>
             <div>${modBtns}</div>
           </div>
-          <p style="margin-top:16px;color:#ced4da;">${escapeHtml(tema.contenido)}</p>
+          <div style="margin-top:16px;color:#ced4da;">${renderUserTextWithShares(tema.contenido, foroShareMap)}</div>
         </div>
         <div class="info-box"><h2>Respuestas (${(respuestas||[]).length})</h2>${repsHtml}</div>
         <div class="info-box"><h2>Responder</h2>${replyBox}</div>
@@ -3863,7 +4396,7 @@ app.get('/novedades', async (req, res) => {
           <span class="nov-meta">por @${escapeHtml(n.autor || 'mod')} · ${escapeHtml(fecha)}</span>
         </div>
         <div class="nov-body">${escapeHtml(n.contenido).replace(/\n/g, '<br>')}</div>
-        ${del ? `<div style="margin-top:10px;">${del}</div>` : ''}
+        ${bShareVideo}${del ? `<div style="margin-top:10px;">${del}</div>` : ''}
       </article>`;
     }).join('') || `<p style="color:#9ca3af;text-align:center;">Todavía no hay novedades.</p>`;
 
@@ -4193,6 +4726,7 @@ app.get('/cooptube/v/:id', async (req, res) => {
     if (v.modUrl) {
       modLink = `<p style="margin:12px 0;"><a href="${escapeHtml(v.modUrl)}" class="btn-blue" rel="noopener">📦 Ver mod relacionado</a></p>`;
     }
+    const bShareVideo = shareBarHtml('video', v.id);
     const del = (sesion.name === v.autor || sesion.superAdmin || sesion.esMod)
       ? `<a href="/cooptube/borrar/${v.id}" class="btn-delete" onclick="return confirm('¿Borrar este video?');">Borrar video</a>`
       : '';
@@ -4214,6 +4748,7 @@ app.get('/cooptube/v/:id', async (req, res) => {
     }).join('') || '<p style="color:#6b7280;font-size:13px;">No hay más videos.</p>';
 
     const comentarios = Array.isArray(v.comentarios) ? v.comentarios : [];
+    const videoShareMap = await fetchShareEmbeds(comentarios.map(c => c.texto || ''));
     const roots = comentarios.filter(c => !c.parentId);
     let commentsHtml = roots.map(c => {
       const replies = comentarios.filter(r => r.parentId === c.id);
@@ -4222,7 +4757,7 @@ app.get('/cooptube/v/:id', async (req, res) => {
       let repHtml = replies.map(r => {
         const canDelR = sesion.name && (sesion.name === r.usuario || sesion.esMod || sesion.name === v.autor);
         const delR = canDelR ? ' <a href="/cooptube/borrar-comentario/' + v.id + '/' + encodeURIComponent(r.id) + '" style="color:#f87171;font-size:11px;" onclick="return confirm(\'¿Borrar?\')">Borrar</a>' : '';
-        return '<div class="comment-reply"><b><a href="/user/' + escapeHtml(r.usuario) + '" class="author">@' + escapeHtml(r.usuario) + '</a></b>' + delR + '<p style="margin:4px 0 0 0;color:#ced4da;">' + escapeHtml(r.texto || '') + '</p></div>';
+        return '<div class="comment-reply"><b><a href="/user/' + escapeHtml(r.usuario) + '" class="author">@' + escapeHtml(r.usuario) + '</a></b>' + delR + '<div style="margin:4px 0 0 0;color:#ced4da;">' + renderUserTextWithShares(r.texto, videoShareMap) + '</div></div>';
       }).join('');
       let replyForm = '';
       if (sesion.name && !sesion.banneado) {
@@ -4231,13 +4766,13 @@ app.get('/cooptube/v/:id', async (req, res) => {
           '<button type="submit" class="btn-gray">Responder</button></form>';
       }
       return '<div class="comment-box"><b><a href="/user/' + escapeHtml(c.usuario) + '" class="author">@' + escapeHtml(c.usuario) + '</a></b>' + delC +
-        '<p style="margin:6px 0 0 0;color:#e5e7eb;">' + escapeHtml(c.texto || '') + '</p>' + repHtml + replyForm + '</div>';
+        '<div style="margin:6px 0 0 0;color:#e5e7eb;">' + renderUserTextWithShares(c.texto, videoShareMap) + '</div>' + repHtml + replyForm + '</div>';
     }).join('') || '<p style="color:#9ca3af;">Sé el primero en comentar.</p>';
 
     let commentForm = '';
     if (sesion.name && !sesion.banneado) {
       commentForm = '<form action="/cooptube/comentario/' + v.id + '" method="POST" style="margin-bottom:16px;">' +
-        '<textarea name="texto" required minlength="2" maxlength="1000" rows="3" placeholder="Escribí un comentario..." style="margin-bottom:10px;"></textarea>' +
+        '<textarea name="texto" required minlength="2" maxlength="1000" rows="3" placeholder="Comentario… /mod/12 · [foro:3]" style="margin-bottom:10px;"></textarea>' + SHARE_HINT +
         '<button type="submit" class="btn-red">Comentar</button></form>';
     } else if (!sesion.name) {
       commentForm = '<p style="color:#9ca3af;"><a href="/login" class="btn-blue">Entrar</a> para comentar.</p>';
@@ -4604,6 +5139,39 @@ app.get('/mod-semana/quitar/:id', async (req, res) => {
 });
 
 // ========== Stats públicas ==========
+
+
+app.post('/api/signed-upload', express.json({ limit: '32kb' }), async (req, res) => {
+  try {
+    const sesion = await getSesion(req);
+    if (!sesion.name) return res.status(401).json({ error: 'Iniciá sesión' });
+    if (sesion.banneado) return res.status(403).json({ error: 'Cuenta baneada' });
+    const rawName = String((req.body && req.body.filename) || 'mod.zip');
+    const safe = rawName.replace(/[^\w.\- ()[\]]+/g, '_').replace(/\s+/g, ' ').trim().slice(0, 100) || 'mod.zip';
+    const size = parseInt(req.body && req.body.size, 10) || 0;
+    if (size > 50 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Máximo 50 MB. Usá un link externo para archivos más grandes.' });
+    }
+    const ext = (safe.match(/\.[a-z0-9]+$/i) || ['.zip'])[0].toLowerCase();
+    if (!['.zip', '.7z', '.rar', '.lua'].includes(ext)) {
+      return res.status(400).json({ error: 'Solo .zip, .7z, .rar o .lua' });
+    }
+    const filePath = sesion.name + '/' + Date.now() + '-' + safe;
+    const { data, error } = await supabase.storage.from('mods-files').createSignedUploadUrl(filePath);
+    if (error || !data) {
+      console.error('signed-upload', error);
+      return res.status(500).json({ error: (error && error.message) || 'No se pudo crear URL firmada. Revisá permisos del bucket mods-files.' });
+    }
+    res.json({
+      path: data.path || filePath,
+      token: data.token,
+      signedUrl: data.signedUrl
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || 'Error' });
+  }
+});
 
 app.post('/api/presence', async (req, res) => {
   try {
