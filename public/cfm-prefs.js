@@ -81,8 +81,28 @@
 
   function applyBgMove() {
     var root = document.documentElement;
-    if (isOn('cfm_bg_move')) root.classList.add('cfm-bg-move');
-    else root.classList.remove('cfm-bg-move');
+    var on = false;
+    try { on = getPref('cfm_bg_move') === '1'; } catch (e) {}
+    if (on) {
+      root.classList.add('cfm-bg-move');
+      if (document.body) document.body.classList.add('cfm-bg-move');
+    } else {
+      root.classList.remove('cfm-bg-move');
+      if (document.body) document.body.classList.remove('cfm-bg-move');
+    }
+    // Capa dedicada: más fiable que solo ::before (evita bugs de fondo estático)
+    var layer = document.getElementById('cfm-bg-layer');
+    if (on) {
+      if (!layer) {
+        layer = document.createElement('div');
+        layer.id = 'cfm-bg-layer';
+        layer.setAttribute('aria-hidden', 'true');
+        document.body.insertBefore(layer, document.body.firstChild);
+      }
+      layer.className = 'cfm-bg-layer is-on';
+    } else if (layer) {
+      layer.className = 'cfm-bg-layer';
+    }
   }
 
   function ensureAudio() {
