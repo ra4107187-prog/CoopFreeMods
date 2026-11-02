@@ -4663,7 +4663,20 @@ app.get('/novedades', async (req, res) => {
       .select('*')
       .order('created_at', { ascending: false })
       .limit(100);
-    if (error) throw error;
+    if (error) {
+      console.error('novedades', error);
+      // tabla faltante u otro error: no tumbar la página
+      const setupHint = /relation|does not exist|schema cache/i.test(String(error.message || error.code || ''))
+        ? `<p style="color:#fbbf24;font-size:13px;margin-bottom:14px;">⚠️ Falta crear la tabla <code>novedades</code> en Supabase (SQL Editor).</p>`
+        : `<p style="color:#fbbf24;font-size:13px;margin-bottom:14px;">⚠️ Error al cargar: ${escapeHtml(error.message || error.code || 'desconocido')}</p>`;
+      return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Novedades | Coop Free Mods</title>${estilosCSS}</head><body>
+        ${navbar(sesion, nNotif)}
+        <div class="main-container" style="max-width:720px;">
+          <h1 style="color:white;">📰 Novedades</h1>
+          ${setupHint}
+          <p style="color:#9ca3af;">Cuando la tabla esté lista, acá van a aparecer los anuncios.</p>
+        </div></body></html>`);
+    }
     const list = rows || [];
     const items = list.map((n) => {
       let fecha = '';
@@ -4679,8 +4692,8 @@ app.get('/novedades', async (req, res) => {
           <h2>${escapeHtml(n.titulo)}</h2>
           <span class="nov-meta">por @${escapeHtml(n.autor || 'mod')} · ${escapeHtml(fecha)}</span>
         </div>
-        <div class="nov-body">${escapeHtml(n.contenido).replace(/\n/g, '<br>')}</div>
-        ${bShareVideo}${del ? `<div style="margin-top:10px;">${del}</div>` : ''}
+        <div class="nov-body">${escapeHtml(n.contenido || '').replace(/\n/g, '<br>')}</div>
+        ${del ? `<div style="margin-top:10px;">${del}</div>` : ''}
       </article>`;
     }).join('') || `<p style="color:#9ca3af;text-align:center;">Todavía no hay novedades.</p>`;
 
