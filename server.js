@@ -1005,7 +1005,7 @@ function navbar(sesion, nNotif, extra, opts) {
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   const logoSrc = opts.logo || '/public/logo.png';
   const logoHref = opts.logoHref || '/';
-  return `<script src="/public/cfm-prefs.js?v=11"></script>${CFM_SHARE_SCRIPT}
+  return `<script src="/public/cfm-prefs.js?v=12"></script>${CFM_SHARE_SCRIPT}
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
@@ -1028,6 +1028,7 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/eventos">📅 Eventos</a>
         <a href="/logros">🏅 Logros</a>
         <a href="/novedades">📰 Novedades</a>
+        <a href="/tutoriales">📘 Tutoriales</a>
         <a href="/packs">📦 Packs</a>
         <a href="/cooptube">📺 CoopTube</a>
         <a href="/ia-mods">🍄 ToadCode</a>
@@ -1052,7 +1053,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=11';
+          s.src = '/public/cfm-prefs.js?v=12';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -3611,7 +3612,7 @@ app.get('/discord-webhook-test', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=11"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=12"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
@@ -4483,6 +4484,176 @@ app.get('/usuarios', async (req, res) => {
 
 
 // ---------- NOVEDADES ----------
+
+const TUTORIAL_CATS = ['Instalación', 'Lua / código', 'Character Select', 'Texturas / gráficos', 'Errores y fixes', 'Otros'];
+
+app.get('/tutoriales', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const cat = req.query.categoria || 'Todas';
+  try {
+    let q = supabase.from('tutoriales').select('*').order('created_at', { ascending: false }).limit(100);
+    const { data, error } = await q;
+    if (error) throw error;
+    let list = data || [];
+    if (cat !== 'Todas') list = list.filter(x => x.categoria === cat);
+    const catOpts = ['Todas'].concat(TUTORIAL_CATS).map(c =>
+      `<option value="${escapeHtml(c)}" ${c === cat ? 'selected' : ''}>${escapeHtml(c)}</option>`
+    ).join('');
+    const cards = list.map(tu => {
+      const fecha = tu.created_at ? new Date(tu.created_at).toLocaleDateString('es-ES') : '';
+      return `<a href="/tutoriales/${tu.id}" class="card" style="text-decoration:none;color:inherit;display:block;padding:16px;">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+          <h3 style="margin:0;color:#fff;font-size:16px;">${escapeHtml(tu.titulo || 'Tutorial')}</h3>
+          <span class="tag-category">${escapeHtml(tu.categoria || 'Otros')}</span>
+        </div>
+        <p style="color:#9ca3af;font-size:13px;margin:8px 0 0;">por @${escapeHtml(tu.autor || '?')} · ${escapeHtml(fecha)}</p>
+        <p style="color:#ced4da;font-size:13px;margin:8px 0 0;line-height:1.4;">${escapeHtml(String(tu.contenido || '').slice(0, 140))}${(tu.contenido || '').length > 140 ? '…' : ''}</p>
+      </a>`;
+    }).join('') || '<p style="color:#9ca3af;">Todavía no hay tutoriales. ¡Sé el primero en publicar uno!</p>';
+    const newBtn = sesion.name && !sesion.banneado
+      ? `<a href="/tutoriales/nuevo" class="btn-red">+ Nuevo tutorial</a>`
+      : `<a href="/login" class="btn-blue">Entrar para publicar</a>`;
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Tutoriales | Coop Free Mods</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+          <div>
+            <h1 style="color:white;margin:0;">📘 Tutoriales</h1>
+            <p style="color:#9ca3af;margin:6px 0 0;font-size:14px;">Guías de la comunidad: instalar, Lua, fixes y más.</p>
+          </div>
+          ${newBtn}
+        </div>
+        <form method="GET" action="/tutoriales" class="filter-bar" style="margin-bottom:18px;">
+          <select name="categoria" onchange="this.form.submit()">${catOpts}</select>
+        </form>
+        <div style="display:flex;flex-direction:column;gap:12px;max-width:800px;">${cards}</div>
+      </div>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudieron cargar los tutoriales. ¿Creaste la tabla <code>tutoriales</code> en Supabase?', sesion, nNotif);
+  }
+});
+
+app.get('/tutoriales/nuevo', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  if (!sesion.name) return res.redirect('/login');
+  if (sesion.banneado) return pageError(res, 403, 'Cuenta baneada', 'No podés publicar.', sesion, nNotif);
+  const opts = TUTORIAL_CATS.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Nuevo tutorial | Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:640px;">
+      <div class="form-box">
+        <h2 style="color:white;margin-top:0;">📘 Nuevo tutorial</h2>
+        <form action="/tutoriales/nuevo" method="POST">
+          <label>Título</label>
+          <input type="text" name="titulo" required maxlength="120" placeholder="Ej: Cómo instalar Character Select">
+          <label>Categoría</label>
+          <select name="categoria">${opts}</select>
+          <label>Video de YouTube (opcional)</label>
+          <input type="url" name="youtube" placeholder="https://youtube.com/watch?v=...">
+          <label>Contenido</label>
+          <textarea name="contenido" required rows="12" maxlength="12000" placeholder="Escribí el tutorial paso a paso..."></textarea>
+          <button type="submit" class="btn-red" style="width:100%;">Publicar tutorial</button>
+        </form>
+        <p style="margin-top:12px;"><a href="/tutoriales" style="color:#93c5fd;">← Volver</a></p>
+      </div>
+    </div>
+  </body></html>`);
+});
+
+app.post('/tutoriales/nuevo', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  if (sesion.banneado) return pageError(res, 403, 'Cuenta baneada', 'No podés publicar.', sesion, 0);
+  if (!rateLimit('tut:' + sesion.name, 4000)) return pageError(res, 429, 'Demasiado rápido', 'Esperá un momento.', sesion, 0);
+  const titulo = cleanText(req.body.titulo || '').slice(0, 120);
+  const contenido = cleanText(req.body.contenido || '').slice(0, 12000);
+  const categoria = TUTORIAL_CATS.includes(req.body.categoria) ? req.body.categoria : 'Otros';
+  let youtube = String(req.body.youtube || '').trim();
+  if (youtube && !/youtube\.com|youtu\.be/i.test(youtube)) youtube = '';
+  if (titulo.length < 3 || contenido.length < 20) {
+    return pageError(res, 400, 'Datos incompletos', 'Título (mín. 3) y contenido (mín. 20 caracteres).', sesion, 0);
+  }
+  try {
+    const payload = {
+      titulo,
+      contenido,
+      autor: sesion.name,
+      categoria,
+      youtube_url: youtube || null
+    };
+    const { data, error } = await supabase.from('tutoriales').insert(payload).select('id').single();
+    if (error) throw error;
+    res.redirect('/tutoriales/' + data.id);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo publicar. Creá la tabla tutoriales en Supabase (SQL del deploy).', sesion, 0);
+  }
+});
+
+app.get('/tutoriales/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.redirect('/tutoriales');
+  try {
+    const { data, error } = await supabase.from('tutoriales').select('*').eq('id', id).single();
+    if (error || !data) return pageError(res, 404, 'No encontrado', 'Ese tutorial no existe.', sesion, nNotif);
+    const fecha = data.created_at ? new Date(data.created_at).toLocaleString('es-ES') : '';
+    const canDel = sesion.name && (sesion.name === data.autor || sesion.esMod);
+    const del = canDel
+      ? `<a href="/tutoriales/borrar/${data.id}" class="btn-delete" onclick="return confirm('¿Borrar este tutorial?');">Eliminar</a>`
+      : '';
+    let yt = '';
+    const ytId = data.youtube_url ? (typeof extractYoutubeId === 'function' ? extractYoutubeId(data.youtube_url) : null) : null;
+    if (ytId) {
+      yt = `<div style="position:relative;width:100%;max-width:640px;aspect-ratio:16/9;margin:16px 0;border-radius:10px;overflow:hidden;background:#000;">
+        <iframe src="https://www.youtube.com/embed/${encodeURIComponent(ytId)}" style="position:absolute;inset:0;width:100%;height:100%;border:0;" allowfullscreen loading="lazy"></iframe>
+      </div>`;
+    }
+    const body = escapeHtml(data.contenido || '').replace(/\n/g, '<br>');
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(data.titulo)} | Tutoriales</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container" style="max-width:760px;">
+        <p><a href="/tutoriales" style="color:#93c5fd;">← Tutoriales</a></p>
+        <div class="info-box">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start;">
+            <h1 style="color:white;margin:0;font-size:1.4rem;">${escapeHtml(data.titulo)}</h1>
+            <span class="tag-category">${escapeHtml(data.categoria || 'Otros')}</span>
+          </div>
+          <p style="color:#9ca3af;font-size:13px;margin:10px 0;">por <a href="/user/${escapeHtml(data.autor)}" class="author">@${escapeHtml(data.autor)}</a> · ${escapeHtml(fecha)}</p>
+          ${yt}
+          <div style="color:#e5e7eb;line-height:1.6;font-size:15px;">${body}</div>
+          <div style="margin-top:16px;">${del}</div>
+        </div>
+      </div>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo cargar el tutorial.', sesion, nNotif);
+  }
+});
+
+app.get('/tutoriales/borrar/:id', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.redirect('/tutoriales');
+  try {
+    const { data } = await supabase.from('tutoriales').select('autor').eq('id', id).single();
+    if (!data) return res.redirect('/tutoriales');
+    if (data.autor !== sesion.name && !sesion.esMod) {
+      return pageError(res, 403, 'Sin permisos', 'No podés borrar este tutorial.', sesion, 0);
+    }
+    await supabase.from('tutoriales').delete().eq('id', id);
+  } catch (e) { console.error(e); }
+  res.redirect('/tutoriales');
+});
+
+
 app.get('/novedades', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
