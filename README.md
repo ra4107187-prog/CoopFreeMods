@@ -115,4 +115,6 @@ Si encontrás un bug, abrí un issue o avisá en Discord.
 
 ¡Gracias por ser parte de la comunidad de SM64 Co-op! 🍄
 
+Tambien la pagina web se estara actualizando constantemente
+
 (los commits no estan bien nombrados, la mayoria solo se llaman a)
