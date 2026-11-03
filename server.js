@@ -37,7 +37,12 @@ function rateLimitCount(key, max, windowMs) {
   return slot.n <= max;
 }
 const SESSION_SECRET = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || ((process.env.SUPABASE_URL || '') + 'cfm-session-v1') || 'cfm-dev-secret-change-me';
+function isDesktopApp(req) {
+  const ua = String((req && req.headers && req.headers['user-agent']) || '');
+  return /CoopFreeModsDesktop/i.test(ua);
+}
 function getClientIp(req) {
+
   try {
     const xf = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
     const ip = xf || req.headers['x-real-ip'] || req.socket?.remoteAddress || '';
@@ -646,6 +651,7 @@ function mapUser(row) {
     fechaRegistro: formatFecha(row.fecha_registro),
     seguidores: normalizeStringArray(row.seguidores),
     banneado: !!row.banneado,
+    usaAppPc: !!row.usa_app_pc,
     avatarUrl: row.avatar_url || null
   };
 }
@@ -896,7 +902,13 @@ async function getSesion(req, res) {
   } catch (e) {}
   const ip = getClientIp(req);
   if (ip) touchUserIp(data.usuario, ip).catch(() => {});
-  return { name: data.usuario, banneado: false, esMod, superAdmin };
+  const desktop = isDesktopApp(req);
+  if (desktop) {
+    try {
+      supabase.from('usuarios').update({ usa_app_pc: true }).eq('usuario', data.usuario).then(() => {}).catch(() => {});
+    } catch (e) {}
+  }
+  return { name: data.usuario, banneado: false, esMod, superAdmin, desktop };
 }
 /** Puede editar contenido ajeno (mod/foro/video) si es autor, collab o super admin activo */
 function canManageContent(sesion, autor, collabs) {
@@ -2272,7 +2284,7 @@ app.get('/user/:username', async (req, res) => {
                 : `<div class="profile-avatar profile-avatar-placeholder">${escapeHtml((user.usuario || '?').charAt(0).toUpperCase())}</div>`}
             </div>
             <div>
-              <h1 style="margin:0;color:white;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}</h1>
+              <h1 style="margin:0;color:white;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}${user.usaAppPc || user.usa_app_pc ? ' <span class="mod-badge" style="background:#2563eb;" title="Usa la app de PC">💻 APP PC</span>' : ''}</h1>
               <p style="color:#ced4da;margin:10px 0;">${escapeHtml(user.descripcion)}</p>
               ${sesion.name === user.usuario ? `
               <form action="/user/${encodeURIComponent(user.usuario)}/bio" method="POST" style="margin:8px 0 12px;">
