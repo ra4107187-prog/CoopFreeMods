@@ -1046,6 +1046,7 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/ia-mods">🍄 ToadCode</a>
         <a href="/mensajes">✉️ Mensajes</a>
         <a href="/stats">📡 Estado</a>
+        <a href="/app-pc">💻 App PC</a>
         <a href="/discord">Discord</a>
       </div>
     </div>
@@ -1677,6 +1678,7 @@ app.get('/', async (req, res) => {
           <a href="/top" class="btn-blue">Top 10</a>
           <a href="/foros" class="btn-blue">Foros</a>
           <a href="/como-instalar" class="btn-gray" style="padding:10px 16px;font-size:14px;">Cómo instalar</a>
+          <a href="/app-pc" class="btn-blue" style="padding:10px 16px;font-size:14px;">💻 App PC</a>
           <a href="/discord" class="discord-float" style="margin:0;">Discord</a>
           <a href="/saturn" class="btn-partner-glow" style="margin:0;">Saturn 64</a>
           <button type="button" id="cfm-egg-zone" aria-label="egg" style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;margin-left:6px;padding:0;border:1px solid #374151;border-radius:8px;background:#1f2937;color:#4b5563;font-size:16px;line-height:1;cursor:pointer;vertical-align:middle;">·</button>
@@ -3145,6 +3147,95 @@ app.get('/como-instalar', async (req, res) => {
   </body></html>`);
 });
 
+
+
+app.get('/app-pc', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  // Archivos que vos subís a public/desktop/
+  const DL_64 = 'https://github.com/ra4107187-prog/CoopFreeMods/releases/download/1.0_PC/CoopFreeMods-Portable-64bit.exe';
+  const DL_32 = 'https://github.com/ra4107187-prog/CoopFreeMods/releases/download/1.0_PC/CoopFreeMods-Portable-32bit.exe';
+  const shots = [
+    { src: '/public/desktop/captura1.png', alt: 'Captura 1' },
+    { src: '/public/desktop/captura2.png', alt: 'Captura 2' },
+    { src: '/public/desktop/captura3.png', alt: 'Captura 3' }
+  ];
+  const shotsHtml = shots.map(s =>
+    `<a href="${s.src}" target="_blank" rel="noopener" style="display:block;border-radius:10px;overflow:hidden;border:1px solid #2d3139;background:#111;">
+      <img src="${s.src}" alt="${s.alt}" style="width:100%;height:160px;object-fit:cover;display:block;" onerror="this.parentElement.style.display='none'">
+    </a>`
+  ).join('');
+
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>App PC | Coop Free Mods</title>${estilosCSS}
+  <style>
+    .app-dl-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    @media (max-width:700px){ .app-dl-grid { grid-template-columns:1fr; } }
+    .app-dl-card {
+      background: rgba(31,35,43,0.95); border:1px solid #2d3139; border-radius:12px;
+      padding:18px; display:flex; flex-direction:column; gap:10px;
+    }
+    .app-dl-card h3 { margin:0; color:#fff; font-size:1.1rem; }
+    .app-dl-card p { margin:0; color:#9ca3af; font-size:13px; line-height:1.45; }
+    .app-shots { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:12px; }
+    @media (max-width:700px){ .app-shots { grid-template-columns:1fr; } }
+  </style>
+  </head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:820px;">
+      <h1 style="color:white;margin:0 0 8px;">💻 App de escritorio</h1>
+      <p style="color:#9ca3af;margin:0 0 22px;line-height:1.5;">
+        Abrí <b>Coop Free Mods</b> en una ventana propia (sin el navegador). Misma web, icono en el escritorio y menú de navegación.
+      </p>
+
+      <div class="info-box">
+        <h2 style="margin-top:0;">Descargas</h2>
+        <div class="app-dl-grid">
+          <div class="app-dl-card">
+            <h3>🪟 Windows 64 bits</h3>
+            <p>La versión recomendada. Casi todas las PC con Windows 10/11 son 64 bits.</p>
+            <a href="${DL_64}" class="btn-red" style="text-align:center;margin-top:6px;" target="_blank" rel="noopener">⬇️ Descargar 64 bits</a>
+          </div>
+          <div class="app-dl-card">
+            <h3>🪟 Windows 32 bits</h3>
+            <p>Solo para PCs muy antiguas de 32 bits. Si no estás seguro, usá la de 64 bits.</p>
+            <a href="${DL_32}" class="btn-blue" style="text-align:center;margin-top:6px;" target="_blank" rel="noopener">⬇️ Descargar 32 bits</a>
+          </div>
+        </div>
+        <p style="color:#6b7280;font-size:12px;margin:14px 0 0;">
+          ¿No sabés cuál? En Windows: Configuración → Sistema → Acerca de → <b>Tipo de sistema</b>.
+        </p>
+      </div>
+
+      <div class="info-box">
+        <h2>Cómo instalar</h2>
+        <p>1. Descargá el <b>.exe</b> de tu versión (64 o 32 bits) desde GitHub Releases<br>
+        2. Guardalo donde quieras (Escritorio, Documentos, etc.)<br>
+        3. Doble clic en <b>CoopFreeMods-Portable-…exe</b><br>
+        4. Si Windows avisa de “aplicación desconocida”, tocá <b>Más información → Ejecutar de todas formas</b></p>
+        <p style="color:#9ca3af;font-size:13px;margin-top:10px;">Es un ejecutable portable (no instala nada). El antivirus a veces marca apps nuevas sin firma digital; suele ser falso positivo.</p>
+      </div>
+
+      <div class="info-box">
+        <h2>Capturas</h2>
+        <div class="app-shots">${shotsHtml}</div>
+        <p style="color:#6b7280;font-size:12px;margin:10px 0 0;">Si no ves imágenes aún, faltan subir <code>captura1.png</code> etc. a <code>public/desktop/</code>.</p>
+      </div>
+
+      <div class="info-box">
+        <h2>Notas</h2>
+        <p>• Al entrar con la app podés ganar la insignia <b>💻 APP PC</b> en tu perfil<br>
+        • La app usa la misma web: lo que publiques en Vercel se ve al toque<br>
+        • Menú: Atrás, Adelante, Inicio, Recargar (también Alt+← → Home y Ctrl+R)</p>
+      </div>
+
+      <p style="text-align:center;margin:28px 0;display:flex;flex-wrap:wrap;gap:10px;justify-content:center;">
+        <a href="/como-instalar" class="btn-gray">Cómo instalar mods</a>
+        <a href="/mods" class="btn-red">Ver mods</a>
+        <a href="/discord" class="discord-float" style="margin:0;">Discord</a>
+      </p>
+    </div>
+  </body></html>`);
+});
 
 
 const DISCORD_INVITE = 'https://discord.gg/RAbR6xBpcR';
