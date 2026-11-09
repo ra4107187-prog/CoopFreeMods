@@ -37,7 +37,13 @@ function rateLimitCount(key, max, windowMs) {
   return slot.n <= max;
 }
 const SESSION_SECRET = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || ((process.env.SUPABASE_URL || '') + 'cfm-session-v1') || 'cfm-dev-secret-change-me';
+function isAndroidApp(req) {
+  // Solo la app Android real (User-Agent). No uses ?app=android en el navegador.
+  const ua = String((req && req.headers && req.headers['user-agent']) || '');
+  return /CoopFreeModsAndroid\/\d/i.test(ua);
+}
 function isDesktopApp(req) {
+
   const ua = String((req && req.headers && req.headers['user-agent']) || '');
   return /CoopFreeModsDesktop/i.test(ua);
 }
@@ -652,6 +658,7 @@ function mapUser(row) {
     seguidores: normalizeStringArray(row.seguidores),
     banneado: !!row.banneado,
     usaAppPc: !!row.usa_app_pc,
+    usaAppAndroid: !!row.usa_app_android,
     avatarUrl: row.avatar_url || null
   };
 }
@@ -873,6 +880,10 @@ async function computeLogros(username) {
     if (totalDL >= 200) logros.push({ id: 'dl200', icon: '🚀', nombre: 'Viral', desc: '200+ descargas totales' });
     if (maxLikes >= 5) logros.push({ id: 'liked', icon: '👍', nombre: 'Gustado', desc: 'Un mod con 5+ likes' });
     if (totalLikes >= 25) logros.push({ id: 'beloved', icon: '❤️', nombre: 'Querido', desc: '25+ likes en total' });
+    // Platino: casi todos los logros base
+    if (logros.length >= 6) {
+      logros.push({ id: 'platino_cfm', icon: '💎', nombre: 'Platino Coop Free Mods', desc: 'Desbloqueaste la mayoría de los logros' });
+    }
   } catch (e) {}
   return logros;
 }
@@ -903,12 +914,18 @@ async function getSesion(req, res) {
   const ip = getClientIp(req);
   if (ip) touchUserIp(data.usuario, ip).catch(() => {});
   const desktop = isDesktopApp(req);
+  const android = isAndroidApp(req);
   if (desktop) {
     try {
       supabase.from('usuarios').update({ usa_app_pc: true }).eq('usuario', data.usuario).then(() => {}).catch(() => {});
     } catch (e) {}
   }
-  return { name: data.usuario, banneado: false, esMod, superAdmin, desktop };
+  if (android) {
+    try {
+      supabase.from('usuarios').update({ usa_app_android: true }).eq('usuario', data.usuario).then(() => {}).catch(() => {});
+    } catch (e) {}
+  }
+  return { name: data.usuario, banneado: false, esMod, superAdmin, desktop, android };
 }
 /** Puede editar contenido ajeno (mod/foro/video) si es autor, collab o super admin activo */
 function canManageContent(sesion, autor, collabs) {
@@ -1017,7 +1034,44 @@ function navbar(sesion, nNotif, extra, opts) {
   const mid = sesion.name ? leftUserLinks(sesion, nNotif || 0) : '';
   const logoSrc = opts.logo || '/public/logo.png';
   const logoHref = opts.logoHref || '/';
-  return `<script src="/public/cfm-prefs.js?v=12"></script>${CFM_SHARE_SCRIPT}
+  return `
+<script>
+(function(){
+  try {
+    var isApp = false;
+    try { isApp = !!(window.CFMAndroid && typeof window.CFMAndroid.isApp === 'function' && window.CFMAndroid.isApp()); } catch (e) { isApp = false; }
+    if (!isApp) return;
+    // Solo con bridge nativo del APK (no User-Agent, no ?app=)
+    fetch('/api/app/android-ping', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bridge: true })
+    }).catch(function(){});
+    if (document.getElementById('cfm-android-bar')) return;
+    var bar = document.createElement('div');
+    bar.id = 'cfm-android-bar';
+    bar.innerHTML = '<button type="button" data-a="back">◀</button><button type="button" data-a="fwd">▶</button><button type="button" data-a="home">🏠</button><button type="button" data-a="reload">↻</button><span class="cfm-ab-brand">Coop Free Mods</span>';
+    bar.addEventListener('click', function(e){
+      var b = e.target.closest('button'); if (!b) return;
+      var a = b.getAttribute('data-a');
+      if (a === 'back') history.back();
+      else if (a === 'fwd') history.forward();
+      else if (a === 'home') location.href = '/';
+      else if (a === 'reload') location.reload();
+    });
+    document.body.insertBefore(bar, document.body.firstChild);
+  } catch (e) {}
+})();
+</script>
+<style>
+#cfm-android-bar{position:sticky;top:0;z-index:99999;display:flex;align-items:center;gap:8px;padding:8px 10px;min-height:44px;background:linear-gradient(180deg,#2563eb,#1e3a8a);border-bottom:3px solid #e11d48;font-family:system-ui,sans-serif}
+#cfm-android-bar button{height:32px;min-width:36px;padding:0 10px;border:1px solid rgba(255,255,255,.25);border-radius:8px;background:rgba(15,23,42,.45);color:#fff;font-weight:700}
+#cfm-android-bar button:active{background:#e11d48}
+#cfm-android-bar .cfm-ab-brand{color:#fff;font-weight:800;font-size:13px;margin-left:4px}
+</style>
+
+<script src="/public/cfm-prefs.js?v=14"></script>${CFM_SHARE_SCRIPT}
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
@@ -1050,6 +1104,21 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/discord">Discord</a>
       </div>
     </div>
+    <div class="navbar-row navbar-row-search" style="padding:8px 12px 10px;border-top:1px solid rgba(255,255,255,0.12);">
+      <form action="/buscar" method="GET" style="display:flex;gap:8px;align-items:center;width:100%;max-width:920px;margin:0 auto;flex-wrap:wrap;">
+        <input type="search" name="q" placeholder="Buscar mods, usuarios, foros, videos, tutoriales…" maxlength="80"
+          style="flex:1;min-width:180px;padding:10px 14px;border-radius:10px;border:1px solid #374151;background:#111827;color:#fff;font-size:14px;">
+        <select name="tipo" style="padding:10px 12px;border-radius:10px;border:1px solid #374151;background:#111827;color:#fff;font-size:13px;">
+          <option value="todo">Todo</option>
+          <option value="mods">Mods</option>
+          <option value="usuarios">Usuarios</option>
+          <option value="foros">Foros</option>
+          <option value="videos">Videos</option>
+          <option value="tutoriales">Tutoriales</option>
+        </select>
+        <button type="submit" class="btn-red" style="padding:10px 16px;">🔍 Buscar</button>
+      </form>
+    </div>
   </div>
   <script>
   (function(){
@@ -1066,7 +1135,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=12';
+          s.src = '/public/cfm-prefs.js?v=14';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -2147,12 +2216,16 @@ app.get('/mod/:id', async (req, res) => {
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
-          <div><h1 style="color:white;">${badgeSemana}${escapeHtml(mod.titulo)}</h1>
-            <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a>${(function(){ const cs = (mod.colaboradores||[]).map(String).filter(c => /^[A-Za-z0-9_\-]{2,24}$/.test(c)); return cs.length ? ' · Colaboran: ' + cs.map(c => '<a href="/user/' + escapeHtml(c) + '" class="author">@' + escapeHtml(c) + '</a>').join(', ') : ''; })()}</p></div>
+          <div style="flex:1;min-width:220px;">
+            <h1 style="color:white;margin:0 0 8px;">${badgeSemana}${escapeHtml(mod.titulo)}</h1>
+            <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a>${(function(){ const cs = (mod.colaboradores||[]).map(String).filter(c => /^[A-Za-z0-9_\-]{2,24}$/.test(c)); return cs.length ? ' · Colaboran: ' + cs.map(c => '<a href="/user/' + escapeHtml(c) + '" class="author">@' + escapeHtml(c) + '</a>').join(', ') : ''; })()}</p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;">
+              <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:14px;padding:8px 14px;background:#1f2937;border-radius:8px;border:1px solid #374151;">👍 ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
+              ${bShare}${bEdit}${bDel}${bSemana}${bFeatured}
+            </div>
+          </div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
-            <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:16px;padding:10px 16px;background:#1f2937;border-radius:8px;border:1px solid #374151;">👍 ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
-            ${bShare}${bEdit}${bDel}${bSemana}${bFeatured}
           </div>
         </div>
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:25px;">
@@ -2286,7 +2359,7 @@ app.get('/user/:username', async (req, res) => {
                 : `<div class="profile-avatar profile-avatar-placeholder">${escapeHtml((user.usuario || '?').charAt(0).toUpperCase())}</div>`}
             </div>
             <div>
-              <h1 style="margin:0;color:white;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}${user.usaAppPc || user.usa_app_pc ? ' <span class="mod-badge" style="background:#2563eb;" title="Usa la app de PC">💻 APP PC</span>' : ''}</h1>
+              <h1 style="margin:0;color:white;">@${escapeHtml(user.usuario)} ${modTag} ${banTag}${user.usaAppPc || user.usa_app_pc ? ' <span class="mod-badge" style="background:#2563eb;" title="Usa la app de PC">💻 APP PC</span>' : ''}${user.usaAppAndroid || user.usa_app_android ? ' <span class="mod-badge" style="background:#16a34a;" title="Usa la app de Android">📱 ANDROID</span>' : ''}</h1>
               <p style="color:#ced4da;margin:10px 0;">${escapeHtml(user.descripcion)}</p>
               ${sesion.name === user.usuario ? `
               <form action="/user/${encodeURIComponent(user.usuario)}/bio" method="POST" style="margin:8px 0 12px;">
@@ -2624,7 +2697,7 @@ app.post('/publish', upload.fields([{ name: 'archivoMod', maxCount: 1 }, { name:
         }, req);
       } catch (e) { console.error(e); }
     }
-    res.redirect(newId ? '/mod/' + newId : '/mods');
+    res.redirect(newId ? '/mod/' + newId + '?ok=mod' : '/mods?ok=mod');
   } catch (e) {
     console.error(e);
     pageError(res, 500, 'Error al publicar', escapeHtml(e.message || 'Error desconocido'), sesion, 0);
@@ -3149,6 +3222,22 @@ app.get('/como-instalar', async (req, res) => {
 
 
 
+
+app.post('/api/app/android-ping', async (req, res) => {
+  // Marca insignia ANDROID solo si el cliente dice que tiene bridge.
+  // La toolbar ya no se basa en esto; el bridge nativo es la prueba real en el cliente.
+  try {
+    const sesion = await getSesion(req);
+    if (!sesion.name) return res.json({ ok: false });
+    const claim = !!(req.body && (req.body.bridge === true || req.body.bridge === '1'));
+    if (!claim) return res.json({ ok: false });
+    await supabase.from('usuarios').update({ usa_app_android: true }).eq('usuario', sesion.name);
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.json({ ok: false });
+  }
+});
+
 app.get('/app-pc', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
@@ -3384,7 +3473,7 @@ app.post('/foros/nuevo', async (req, res) => {
     titulo, contenido, autor: sesion.name, categoria, vistas: 0
   }).select('id').single();
   if (error) { console.error(error); return pageError(res, 500, 'Error', 'No se pudo crear el tema.', sesion, 0); }
-  res.redirect('/foros/tema/' + data.id);
+  res.redirect('/foros/tema/' + data.id + '?ok=foro');
 });
 
 app.get('/foros/tema/:id', async (req, res) => {
@@ -3715,7 +3804,7 @@ app.get('/discord-webhook-test', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=12"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=14"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
@@ -4894,7 +4983,7 @@ app.post('/novedades/nueva', async (req, res) => {
         }
       }
     }
-    res.redirect('/novedades');
+    res.redirect('/novedades?ok=novedad');
   } catch (e) {
     console.error(e);
     pageError(res, 500, 'Error', 'No se pudo publicar. ¿Existe la tabla novedades en Supabase?', sesion, 0);
@@ -5295,7 +5384,7 @@ app.get('/like-video/:id', async (req, res) => {
     const { data, error } = await supabase.from('videos').select('*').eq('id', id).single();
     if (error || !data) {
       console.error('like-video fetch', error);
-      return res.redirect('/cooptube/v/' + id);
+      return res.redirect('/cooptube/v/' + id + '?ok=video');
     }
     let likes = data.likes || 0;
     let usuariosLike = normalizeStringArray(data.usuarios_like);
@@ -5596,6 +5685,98 @@ app.post('/api/presence', async (req, res) => {
 app.get('/estado', async (req, res) => {
   res.redirect('/stats');
 });
+
+
+
+app.get('/api/logros-mine', async (req, res) => {
+  try {
+    const sesion = await getSesion(req);
+    if (!sesion.name) return res.json({ ok: false, logros: [] });
+    const logros = await computeLogros(sesion.name);
+    return res.json({ ok: true, logros });
+  } catch (e) {
+    return res.json({ ok: false, logros: [] });
+  }
+});
+
+app.get('/buscar', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const q = String(req.query.q || '').trim().slice(0, 80);
+  const tipo = String(req.query.tipo || 'todo').toLowerCase();
+  const like = q ? '%' + q.replace(/%/g, '').replace(/,/g, ' ').replace(/\./g, ' ') + '%' : '';
+  let mods = [], users = [], foros = [], videos = [], tuts = [];
+  try {
+    if (q && (tipo === 'todo' || tipo === 'mods')) {
+      const { data } = await supabase.from('mods').select('*').or('titulo.ilike.' + like + ',descripcion.ilike.' + like + ',autor.ilike.' + like).order('descargas', { ascending: false }).limit(24);
+      mods = (data || []).map(mapMod).filter(Boolean);
+      // también por id numérico
+      if (/^\\d+$/.test(q)) {
+        const { data: byId } = await supabase.from('mods').select('*').eq('id', parseInt(q, 10)).limit(1);
+        if (byId && byId[0]) {
+          const m = mapMod(byId[0]);
+          if (m && !mods.find(x => x.id === m.id)) mods.unshift(m);
+        }
+      }
+    }
+    if (q && (tipo === 'todo' || tipo === 'usuarios')) {
+      const { data } = await supabase.from('usuarios').select('usuario,bio,fecha_registro,usa_app_pc,usa_app_android').ilike('usuario', like).limit(20);
+      users = data || [];
+    }
+    if (q && (tipo === 'todo' || tipo === 'foros')) {
+      try {
+        const { data } = await supabase.from('foro_temas').select('id,titulo,autor,vistas').or('titulo.ilike.' + like + ',autor.ilike.' + like).order('id', { ascending: false }).limit(20);
+        foros = data || [];
+      } catch (e) {}
+    }
+    if (q && (tipo === 'todo' || tipo === 'videos')) {
+      try {
+        const { data } = await supabase.from('videos').select('*').or('titulo.ilike.' + like + ',autor.ilike.' + like).order('id', { ascending: false }).limit(20);
+        videos = (data || []).map(mapVideo).filter(Boolean);
+      } catch (e) {}
+    }
+    if (q && (tipo === 'todo' || tipo === 'tutoriales')) {
+      try {
+        const { data } = await supabase.from('tutoriales').select('id,titulo,autor,created_at').or('titulo.ilike.' + like + ',autor.ilike.' + like).order('id', { ascending: false }).limit(20);
+        tuts = data || [];
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.error('buscar', e);
+  }
+  const total = mods.length + users.length + foros.length + videos.length + tuts.length;
+  const sec = (title, html) => html ? `<div class="info-box"><h2 style="margin-top:0;">${title}</h2>${html}</div>` : '';
+  const modsH = mods.map(m => `<a href="/mod/${m.id}" class="home-foro-row"><span class="home-foro-title">${escapeHtml(m.titulo)}</span><span class="home-foro-meta">@${escapeHtml(m.autor)} · ⬇️ ${m.descargas || 0}</span></a>`).join('');
+  const usersH = users.map(u => `<a href="/user/${escapeHtml(u.usuario)}" class="home-foro-row"><span class="home-foro-title">@${escapeHtml(u.usuario)}</span><span class="home-foro-meta">${escapeHtml((u.bio || '').slice(0, 60))}</span></a>`).join('');
+  const forosH = foros.map(f => `<a href="/foros/tema/${f.id}" class="home-foro-row"><span class="home-foro-title">${escapeHtml(f.titulo)}</span><span class="home-foro-meta">@${escapeHtml(f.autor)} · 👁 ${f.vistas || 0}</span></a>`).join('');
+  const vidsH = videos.map(v => `<a href="/cooptube/v/${v.id}" class="home-foro-row"><span class="home-foro-title">${escapeHtml(v.titulo)}</span><span class="home-foro-meta">@${escapeHtml(v.autor)} · 👁 ${v.vistas || 0}</span></a>`).join('');
+  const tutsH = tuts.map(x => `<a href="/tutoriales/${x.id}" class="home-foro-row"><span class="home-foro-title">${escapeHtml(x.titulo)}</span><span class="home-foro-meta">@${escapeHtml(x.autor || '')}</span></a>`).join('');
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Buscar${q ? ': ' + escapeHtml(q) : ''} | Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:800px;">
+      <h1 style="color:white;">🔍 Buscar</h1>
+      <form action="/buscar" method="GET" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">
+        <input type="search" name="q" value="${escapeHtml(q)}" placeholder="Escribí algo…" maxlength="80" style="flex:1;min-width:160px;padding:10px 14px;border-radius:10px;border:1px solid #374151;background:#111827;color:#fff;">
+        <select name="tipo" style="padding:10px 12px;border-radius:10px;border:1px solid #374151;background:#111827;color:#fff;">
+          <option value="todo"${tipo==='todo'?' selected':''}>Todo</option>
+          <option value="mods"${tipo==='mods'?' selected':''}>Mods</option>
+          <option value="usuarios"${tipo==='usuarios'?' selected':''}>Usuarios</option>
+          <option value="foros"${tipo==='foros'?' selected':''}>Foros</option>
+          <option value="videos"${tipo==='videos'?' selected':''}>Videos</option>
+          <option value="tutoriales"${tipo==='tutoriales'?' selected':''}>Tutoriales</option>
+        </select>
+        <button type="submit" class="btn-red">Buscar</button>
+      </form>
+      ${!q ? '<p style="color:#9ca3af;">Escribí un término para buscar en mods, usuarios, foros, videos y tutoriales.</p>' : `<p style="color:#9ca3af;">Resultados para <b style="color:#fff;">"${escapeHtml(q)}"</b> · ${total} encontrado(s)</p>`}
+      ${sec('📦 Mods', modsH)}
+      ${sec('👥 Usuarios', usersH)}
+      ${sec('💬 Foros', forosH)}
+      ${sec('📺 Videos', vidsH)}
+      ${sec('📘 Tutoriales', tutsH)}
+      ${q && total === 0 ? '<div class="info-box"><p style="color:#9ca3af;margin:0;">Nada por aquí. Probá otra palabra o cambiá el filtro.</p></div>' : ''}
+    </div></body></html>`);
+});
+
 
 app.get('/stats', async (req, res) => {
   const sesion = await getSesion(req);
@@ -6133,7 +6314,7 @@ app.get('/eventos', async (req, res) => {
 app.post('/eventos', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name || sesion.banneado) return res.redirect('/login');
-  if (!rateLimit('evento-' + sesion.name, 8000)) return res.redirect('/eventos');
+  if (!rateLimit('evento-' + sesion.name, 8000)) return res.redirect('/eventos?ok=evento');
   const titulo = cleanText(req.body.titulo || '').slice(0, 100);
   const descripcion = cleanText(req.body.descripcion || '').slice(0, 800);
   const fecha = req.body.fecha_evento ? new Date(req.body.fecha_evento).toISOString() : null;
@@ -6306,7 +6487,7 @@ app.get('/packs', async (req, res) => {
 app.post('/packs', async (req, res) => {
   const sesion = await getSesion(req);
   if (!sesion.name || sesion.banneado) return res.redirect('/login');
-  if (!rateLimit('pack-create-' + sesion.name, 5000)) return res.redirect('/packs');
+  if (!rateLimit('pack-create-' + sesion.name, 5000)) return res.redirect('/packs?ok=pack');
   const titulo = cleanText(req.body.titulo || '').slice(0, 80);
   const descripcion = cleanText(req.body.descripcion || '').slice(0, 500);
   let modIds = parseModIdsInput(req.body.mod_ids || '');
