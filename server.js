@@ -1101,23 +1101,9 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/mensajes">✉️ Mensajes</a>
         <a href="/stats">📡 Estado</a>
         <a href="/app-pc">💻 App PC</a>
+        <a href="/buscar">🔍 Buscar</a>
         <a href="/discord">Discord</a>
       </div>
-    </div>
-    <div class="navbar-row navbar-row-search" style="padding:8px 12px 10px;border-top:1px solid rgba(255,255,255,0.12);">
-      <form action="/buscar" method="GET" style="display:flex;gap:8px;align-items:center;width:100%;max-width:920px;margin:0 auto;flex-wrap:wrap;">
-        <input type="search" name="q" placeholder="Buscar mods, usuarios, foros, videos, tutoriales…" maxlength="80"
-          style="flex:1;min-width:180px;padding:10px 14px;border-radius:10px;border:1px solid #374151;background:#111827;color:#fff;font-size:14px;">
-        <select name="tipo" style="padding:10px 12px;border-radius:10px;border:1px solid #374151;background:#111827;color:#fff;font-size:13px;">
-          <option value="todo">Todo</option>
-          <option value="mods">Mods</option>
-          <option value="usuarios">Usuarios</option>
-          <option value="foros">Foros</option>
-          <option value="videos">Videos</option>
-          <option value="tutoriales">Tutoriales</option>
-        </select>
-        <button type="submit" class="btn-red" style="padding:10px 16px;">🔍 Buscar</button>
-      </form>
     </div>
   </div>
   <script>
