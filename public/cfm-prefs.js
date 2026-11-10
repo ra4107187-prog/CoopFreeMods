@@ -10,7 +10,9 @@
   var TRACKS = {
     '1': '/public/bg-music.mp3',
     '2': '/public/bg-music-2.mp3',
-    '3': '/public/bg-music-3.mp3'
+    '3': '/public/bg-music-3.mp3',
+    '4': '/public/bg-music-4.mp3',
+    '5': '/public/bg-music-5.mp3'
   };
 
   function setPref(k, v) {
@@ -252,7 +254,7 @@
   window.__cfmExtrasLoaded = true;
 
   var ICON = '/public/icon.png';
-  var AFK_MS = 90000; // 90s sin actividad
+  var AFK_MS = 60000; // 1 min
   var afkTimer = null;
   var afkOn = false;
   var musicWasPlaying = false;
@@ -321,7 +323,7 @@
       }, 1500);
     }
     // cualquier movimiento/tecla/touch cierra
-    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'].forEach(function (ev) {
+    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'pointerdown'].forEach(function (ev) {
       window.addEventListener(ev, hideAfk, { once: true, passive: true });
     });
   }
@@ -331,7 +333,7 @@
     afkTimer = setTimeout(showAfk, AFK_MS);
   }
 
-  ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'].forEach(function (ev) {
+  ['mousemove', 'mousedown', 'keydown', 'touchstart', 'pointerdown', 'click'].forEach(function (ev) {
     window.addEventListener(ev, function () {
       if (!afkOn) resetAfk();
     }, { passive: true });
