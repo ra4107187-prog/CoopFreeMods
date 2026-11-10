@@ -1079,7 +1079,7 @@ function navbar(sesion, nNotif, extra, opts) {
 #cfm-android-bar .cfm-ab-brand{color:#fff;font-weight:800;font-size:13px;margin-left:4px}
 </style>
 
-<script src="/public/cfm-prefs.js?v=16"></script>${CFM_SHARE_SCRIPT}
+<script src="/public/cfm-prefs.js?v=17"></script>${CFM_SHARE_SCRIPT}
 <script>
 (function(){
   if (window.__cfmInlineExtras) return;
@@ -1235,7 +1235,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=16';
+          s.src = '/public/cfm-prefs.js?v=17';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -3904,7 +3904,7 @@ app.get('/discord-webhook-test', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=16"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=17"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
