@@ -1219,6 +1219,11 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/discord">Discord</a>
       </div>
     </div>
+    <div class="navbar-row navbar-row-extra" style="padding:6px 12px 8px;border-top:1px solid rgba(255,255,255,0.12);">
+      <div class="nav-links nav-links-sub" style="justify-content:center;flex-wrap:wrap;gap:8px;">
+        <a href="/jugar-sm64" style="font-weight:800;">🍄 Jugar SM64</a>
+      </div>
+    </div>
   </div>
   <script>
   (function(){
@@ -1851,7 +1856,7 @@ app.get('/', async (req, res) => {
           <a href="/discord" class="discord-float" style="margin:0;">Discord</a>
           <a href="/saturn" class="btn-partner-glow" style="margin:0;">Saturn 64</a>
           <button type="button" id="cfm-egg-zone" aria-label="egg" style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;margin-left:6px;padding:0;border:1px solid #374151;border-radius:8px;background:#1f2937;color:#4b5563;font-size:16px;line-height:1;cursor:pointer;vertical-align:middle;">·</button>
-          <a href="/jugar-sm64" id="cfm-egg-sm64" style="display:none;margin:0;background:#e11d48;color:#fff !important;font-weight:800;padding:12px 16px;border-radius:999px;text-decoration:none;box-shadow:0 6px 20px rgba(225,29,72,0.45);">🍄 Jugar SM64</a>
+          <a href="/jugar-sm64" class="btn-red" style="margin:0;">🍄 Jugar SM64</a>
         </div>
         <script>
         (function(){
@@ -3256,7 +3261,7 @@ app.get('/info-disabled', async (req, res) => {
       </div>
 
       <p style="text-align:center;margin:30px 0;">
-        <a href="https://notan127.github.io/SM64-PC-Port-WebGL/classic/" target="_blank" rel="noopener" class="btn-blue">Abrir en pestaña nueva</a>
+        <a href="https://sm64-web.vercel.app" target="_blank" rel="noopener" class="btn-blue">Abrir en pestaña nueva</a>
         <a href="/" class="btn-red" style="margin-left:8px;">Volver al inicio</a>
         <a href="/register" class="btn-blue" style="margin-left:10px;">Crear cuenta</a>
       </p>
@@ -3755,126 +3760,51 @@ app.get('/jugar-sm64', async (req, res) => {
   const nNotif = await countNotif(sesion.name);
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Jugar SM64 | Coop Free Mods</title>${estilosCSS}
   <style>
-    body.sm64-page { margin: 0; background: #000; overflow: hidden; }
-    #sm64App {
-      display: flex; flex-direction: column; width: 100%; height: 100vh;
-      background: #000;
-    }
+    body.sm64-page { margin: 0; background: #0b0d12; min-height: 100vh; }
+    .sm64-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
     .sm64-bar {
-      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-      padding: 10px 14px; background: rgba(15,17,21,0.96);
-      border-bottom: 2px solid #ff3333; position: relative; z-index: 30;
-      flex-shrink: 0;
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      margin-bottom: 12px;
     }
-    .sm64-bar a, .sm64-bar button {
-      font-weight: 700; font-size: 13px; border-radius: 8px; border: none; cursor: pointer;
-      padding: 8px 12px; text-decoration: none; pointer-events: auto;
-    }
-    .sm64-bar .btn-fs { background: #2563eb; color: white; }
-    .sm64-bar .btn-back { background: #374151; color: #e5e7eb; }
-    .sm64-controls-mini { color: #9ca3af; font-size: 12px; margin-left: auto; }
-    .sm64-frame-wrap {
-      position: relative; flex: 1; min-height: 0; width: 100%; background: #000;
+    .sm64-frame-box {
+      position: relative; width: 100%;
+      background: #000; border-radius: 12px; overflow: hidden;
+      border: 1px solid #2d3139;
+      aspect-ratio: 16 / 10; min-height: 420px;
     }
     .sm64-frame {
-      width: 100%; height: 100%; border: 0; display: block; background: #000;
+      position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
     }
-    /* En fullscreen solo el juego: botón flotante para salir */
-    #sm64ExitFs {
-      display: none; position: fixed; top: 12px; right: 12px; z-index: 99999;
-      background: rgba(15,17,21,0.92); color: #fff; border: 2px solid #ff3333;
-      border-radius: 8px; padding: 10px 14px; font-weight: 800; font-size: 13px; cursor: pointer;
-    }
-    .sm64-frame-wrap:fullscreen #sm64ExitFs,
-    .sm64-frame-wrap:-webkit-full-screen #sm64ExitFs {
-      display: block;
-    }
-    .sm64-frame-wrap:fullscreen,
-    .sm64-frame-wrap:-webkit-full-screen {
-      width: 100vw; height: 100vh; background: #000;
-    }
-    .sm64-frame-wrap:fullscreen .sm64-frame,
-    .sm64-frame-wrap:-webkit-full-screen .sm64-frame {
-      width: 100%; height: 100%;
-    }
+    .sm64-note { color: #9ca3af; font-size: 13px; margin-top: 12px; line-height: 1.45; }
   </style>
   </head><body class="sm64-page">
-    <div id="sm64App">
+    ${navbar(sesion, nNotif)}
+    <div class="sm64-wrap">
       <div class="sm64-bar">
-        <a href="/" class="btn-back">← Inicio</a>
-        <button type="button" class="btn-fs" id="btnFullscreen">⛶ Pantalla completa</button>
-        <span class="sm64-controls-mini">WASD · A:X · B:C · Z:Espacio · Start:Enter · Cámara:flechas</span>
+        <h1 style="color:#fff;margin:0;font-size:1.35rem;">🍄 Jugar SM64</h1>
+        <a href="https://sm64-web.vercel.app" target="_blank" rel="noopener" class="btn-blue">Abrir en pestaña nueva</a>
+        <a href="/" class="btn-gray">← Inicio</a>
       </div>
-      <div class="sm64-frame-wrap" id="sm64Wrap">
-        <button type="button" id="sm64ExitFs">✕ Salir pantalla completa</button>
-        <iframe class="sm64-frame" id="sm64Frame" src="/public/sm64/index.html" title="SM64" allow="fullscreen; gamepad *; autoplay" allowfullscreen tabindex="0"></iframe>
+      <div class="sm64-frame-box">
+        <iframe class="sm64-frame" src="https://sm64-web.vercel.app" title="SM64 Web"
+          allow="fullscreen; gamepad *; autoplay; clipboard-write"
+          allowfullscreen loading="lazy"></iframe>
       </div>
+      <p class="sm64-note">
+        Emulador web de Super Mario 64 (sm64-web). La música de fondo de Coop Free Mods se pausa mientras estás acá.
+        Si el juego no carga dentro del marco, usá <b>Abrir en pestaña nueva</b>.
+      </p>
     </div>
     <script>
     (function(){
       try {
-        localStorage.setItem('cfm_egg_sm64', '1');
-        // No tocar cfm_music: solo pausar mientras jugás
         var audio = document.getElementById('cfm-bg-music');
         if (audio) audio.pause();
-      } catch(e) {}
-      var wrap = document.getElementById('sm64Wrap');
-      var frame = document.getElementById('sm64Frame');
-      var btn = document.getElementById('btnFullscreen');
-      var exitBtn = document.getElementById('sm64ExitFs');
-      function isFs() {
-        return document.fullscreenElement || document.webkitFullscreenElement;
-      }
-      function focusGame() {
-        try {
-          if (frame) {
-            frame.focus();
-            if (frame.contentWindow) frame.contentWindow.focus();
-          }
-        } catch (e) {}
-      }
-      function goFS() {
-        if (isFs()) {
-          if (document.exitFullscreen) document.exitFullscreen();
-          else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-          return;
-        }
-        // Solo el área del juego → el iframe recibe teclado/ratón
-        if (wrap.requestFullscreen) wrap.requestFullscreen();
-        else if (wrap.webkitRequestFullscreen) wrap.webkitRequestFullscreen();
-        else if (frame.requestFullscreen) frame.requestFullscreen();
-      }
-      function onFsChange() {
-        var fs = isFs();
-        btn.textContent = fs ? '✕ Salir pantalla completa' : '⛶ Pantalla completa';
-        if (exitBtn) exitBtn.style.display = fs ? 'block' : 'none';
-        if (fs) setTimeout(focusGame, 150);
-        else setTimeout(focusGame, 50);
-      }
-      document.addEventListener('fullscreenchange', onFsChange);
-      document.addEventListener('webkitfullscreenchange', onFsChange);
-      btn.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        goFS();
-      });
-      if (exitBtn) exitBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (document.exitFullscreen) document.exitFullscreen();
-        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-      });
-      // Clic en el juego → foco al iframe
-      wrap.addEventListener('click', function() { focusGame(); });
-      frame.addEventListener('load', function() { focusGame(); });
+      } catch (e) {}
     })();
     </script>
   </body></html>`);
 });
-
-
-
-
 
 app.get('/discord-webhook-test', async (req, res) => {
   const sesion = await getSesion(req);
