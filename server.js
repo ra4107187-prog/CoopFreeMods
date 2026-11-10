@@ -205,6 +205,14 @@ function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function withCfmIcon(escapedHtml) {
+  return String(escapedHtml || '').replace(/:cfm_icon:/gi,
+    '<img src="/public/icon.png" alt="CFM" class="cfm-inline-icon" title=":cfm_icon:" style="height:1.15em;width:1.15em;vertical-align:-0.2em;display:inline-block;object-fit:contain;margin:0 .1em;">');
+}
+function richText(str) {
+  return withCfmIcon(escapeHtml(str));
+}
+
 
 /** Compartir interno: mods, foros y videos */
 function extractShareRefs(text) {
@@ -417,7 +425,7 @@ function renderVideoCards(videos) {
           <span style="position:absolute;top:8px;left:8px;background:#e11d48;color:#fff;font-size:11px;font-weight:800;padding:2px 7px;border-radius:4px;">VIDEO</span>
         </div>
         <div class="card-content">
-          <h3 style="color:white;margin:0 0 6px 0;">${escapeHtml(v.titulo)} <span style="color:#9ca3af;font-size:12px;font-weight:600;">(video)</span></h3>
+          <h3 style="color:white;margin:0 0 6px 0;">${withCfmIcon(escapeHtml(v.titulo))} <span style="color:#9ca3af;font-size:12px;font-weight:600;">(video)</span></h3>
           <p style="color:#9ca3af;font-size:12px;margin:0;">👁 ${v.vistas || 0} · 👍 ${v.likes || 0} · ${escapeHtml(v.categoria || '')}</p>
         </div>
       </a>
@@ -862,7 +870,7 @@ async function notifyMentions(fromUser, text, link, contextLabel) {
   }
 }
 function highlightMentions(text) {
-  return escapeHtml(text).replace(/@([a-zA-Z0-9_\-]{2,24})/g, '<a href="/user/$1" class="author">@$1</a>');
+  return withCfmIcon(escapeHtml(text).replace(/@([a-zA-Z0-9_\-]{2,24})/g, '<a href="/user/$1" class="author">@$1</a>'));
 }
 async function computeLogros(username) {
   const logros = [];
@@ -1071,7 +1079,113 @@ function navbar(sesion, nNotif, extra, opts) {
 #cfm-android-bar .cfm-ab-brand{color:#fff;font-weight:800;font-size:13px;margin-left:4px}
 </style>
 
-<script src="/public/cfm-prefs.js?v=14"></script>${CFM_SHARE_SCRIPT}
+<script src="/public/cfm-prefs.js?v=16"></script>${CFM_SHARE_SCRIPT}
+<script>
+(function(){
+  if (window.__cfmInlineExtras) return;
+  window.__cfmInlineExtras = true;
+  // :cfm_icon: por si el prefs viejo no carga
+  function iconify(root){
+    try {
+      var w = document.createTreeWalker(root || document.body, NodeFilter.SHOW_TEXT, null);
+      var nodes = [];
+      while (w.nextNode()) nodes.push(w.currentNode);
+      nodes.forEach(function(node){
+        if (!node.nodeValue || node.nodeValue.indexOf(':cfm_icon:') === -1) return;
+        var pe = node.parentElement;
+        if (pe && (pe.tagName === 'SCRIPT' || pe.tagName === 'STYLE' || pe.tagName === 'TEXTAREA' || pe.tagName === 'INPUT')) return;
+        var parts = node.nodeValue.split(/:cfm_icon:/i);
+        var frag = document.createDocumentFragment();
+        parts.forEach(function(part, i){
+          if (part) frag.appendChild(document.createTextNode(part));
+          if (i < parts.length - 1) {
+            var img = document.createElement('img');
+            img.src = '/public/icon.png';
+            img.alt = 'CFM';
+            img.className = 'cfm-inline-icon';
+            img.style.cssText = 'height:1.15em;width:1.15em;vertical-align:-0.2em;display:inline-block;object-fit:contain;margin:0 .1em;';
+            frag.appendChild(img);
+          }
+        });
+        node.parentNode.replaceChild(frag, node);
+      });
+    } catch(e) {}
+  }
+  function bootIcon(){ iconify(document.body); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootIcon);
+  else bootIcon();
+  setTimeout(bootIcon, 500);
+  setTimeout(bootIcon, 2000);
+
+  // AFK easter egg — solo actividad real (no scroll continuo)
+  var AFK_MS = 60000;
+  var timer = null, on = false, musicWas = false;
+  function pauseMusic(){
+    var a = document.getElementById('cfm-bg-music');
+    if (a && !a.paused) { musicWas = true; try { a.pause(); } catch(e){} }
+    else musicWas = false;
+  }
+  function resumeMusic(){
+    if (!musicWas) return;
+    var a = document.getElementById('cfm-bg-music');
+    if (a) try { a.play().catch(function(){}); } catch(e){}
+    musicWas = false;
+  }
+  function hide(){
+    if (!on) return;
+    on = false;
+    var ov = document.getElementById('cfm-afk-overlay');
+    if (ov) {
+      var v = ov.querySelector('video');
+      if (v) try { v.pause(); } catch(e){}
+      ov.remove();
+    }
+    resumeMusic();
+    arm();
+  }
+  function show(){
+    if (on || document.hidden) return;
+    on = true;
+    pauseMusic();
+    var ov = document.createElement('div');
+    ov.id = 'cfm-afk-overlay';
+    ov.setAttribute('style','position:fixed;inset:0;z-index:2147483000;background:#000;display:flex;align-items:center;justify-content:center;');
+    ov.innerHTML = '<video id="cfm-afk-vid" playsinline autoplay loop style="max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;background:#000;" src="/public/easter-afk.mp4"></video>'+
+      '<div id="cfm-afk-fb" style="display:none;flex-direction:column;align-items:center;gap:14px;color:#eee;font-family:system-ui,sans-serif;text-align:center;padding:24px;position:absolute;">'+
+      '<img src="/public/logo.png" alt="" style="width:min(220px,70vw);" onerror="this.src=\\'/public/icon.png\\'">'+
+      '<p style="margin:0;font-size:15px;">Easter egg AFK — mové el mouse para volver</p></div>';
+    document.body.appendChild(ov);
+    var vid = document.getElementById('cfm-afk-vid');
+    var fb = document.getElementById('cfm-afk-fb');
+    function showFb(){ if (vid) vid.style.display='none'; if (fb) fb.style.display='flex'; }
+    if (vid) {
+      vid.muted = false;
+      vid.volume = 0.8;
+      vid.play().catch(function(){ vid.muted = true; vid.play().catch(showFb); });
+      vid.addEventListener('error', showFb);
+      setTimeout(function(){ if (vid.readyState < 2) showFb(); }, 2000);
+    } else showFb();
+    function onceHide(){ hide(); }
+    ['mousemove','mousedown','keydown','touchstart','pointerdown'].forEach(function(ev){
+      window.addEventListener(ev, onceHide, { once: true, passive: true });
+    });
+  }
+  function arm(){
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(show, AFK_MS);
+  }
+  function bump(){ if (!on) arm(); }
+  ['mousemove','mousedown','keydown','touchstart','pointerdown','click'].forEach(function(ev){
+    window.addEventListener(ev, bump, { passive: true });
+  });
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) { if (timer) clearTimeout(timer); hide(); }
+    else arm();
+  });
+  arm();
+})();
+</script>
+
   <div class="navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
@@ -1121,7 +1235,7 @@ function navbar(sesion, nNotif, extra, opts) {
         else {
           // fallback mínimo si el script aún no cargó
           var s = document.createElement('script');
-          s.src = '/public/cfm-prefs.js?v=14';
+          s.src = '/public/cfm-prefs.js?v=16';
           s.onload = function(){ if (window.cfmPrefs) window.cfmPrefs.applyAll(); };
           document.head.appendChild(s);
         }
@@ -1339,7 +1453,7 @@ function renderModCards(mods, sesion, top1Id) {
         <div class="card-img-box">${img}</div>
         <div class="card-content" style="padding-bottom:8px;">
           <div class="tags"><span class="tag-version">${escapeHtml(mod.version)}</span><span class="tag-category">${escapeHtml(mod.categoria)}</span></div>
-          <h3 style="color:${titleColor};margin:0 0 10px 0;">${escapeHtml(mod.titulo)}</h3>
+          <h3 style="color:${titleColor};margin:0 0 10px 0;">${withCfmIcon(escapeHtml(mod.titulo))}</h3>
           <p>${escapeHtml(mod.descripcion)}</p>
         </div>
       </a>
@@ -1482,14 +1596,14 @@ app.get('/', async (req, res) => {
       return `<a href="/mod/${m.id}" class="home-mod-row"${rowStyle}>
         <div class="home-mod-thumb">${img}</div>
         <div>
-          <div class="home-mod-title" style="${titleCol}">${star}${escapeHtml(m.titulo)}</div>
+          <div class="home-mod-title" style="${titleCol}">${star}${withCfmIcon(escapeHtml(m.titulo))}</div>
           <div class="home-mod-meta">@${escapeHtml(m.autor)} · ⬇️ ${m.descargas || 0}</div>
         </div>
       </a>`;
     };
     const miniForo = (f) =>
       `<a href="/foros/tema/${f.id}" class="home-foro-row">
-        <span class="home-foro-title">${escapeHtml(f.titulo)}</span>
+        <span class="home-foro-title">${withCfmIcon(escapeHtml(f.titulo))}</span>
         <span class="home-foro-meta">@${escapeHtml(f.autor)} · 👁 ${f.vistas || 0}</span>
       </a>`;
     const miniVideo = (v) => {
@@ -1497,7 +1611,7 @@ app.get('/', async (req, res) => {
       return `<a href="/cooptube/v/${v.id}" class="home-mod-row">
         <div class="home-mod-thumb"><img src="${escapeHtml(thumb)}" alt=""></div>
         <div>
-          <div class="home-mod-title">${escapeHtml(v.titulo)} <span style="color:#9ca3af;font-size:11px;font-weight:600;">(video)</span></div>
+          <div class="home-mod-title">${withCfmIcon(escapeHtml(v.titulo))} <span style="color:#9ca3af;font-size:11px;font-weight:600;">(video)</span></div>
           <div class="home-mod-meta">@${escapeHtml(v.autor)} · 👁 ${v.vistas || 0}</div>
         </div>
       </a>`;
@@ -1551,7 +1665,7 @@ app.get('/', async (req, res) => {
                   return `<a href="/mod/${m.id}" class="featured-card">
                     ${img}
                     <div class="featured-body">
-                      <h3 class="featured-title">${escapeHtml(m.titulo)}</h3>
+                      <h3 class="featured-title">${withCfmIcon(escapeHtml(m.titulo))}</h3>
                       <p class="featured-desc">${desc}</p>
                       <div class="featured-meta"><span class="featured-author">${escapeHtml(m.autor)}</span>
                         <span class="featured-sep">·</span>
@@ -1807,7 +1921,7 @@ function renderFeaturedCarouselBlock(featuredMods, sesion, opts) {
     return `<a href="/mod/${m.id}" class="featured-card">
       ${img}
       <div class="featured-body">
-        <h3 class="featured-title">${escapeHtml(m.titulo)}</h3>
+        <h3 class="featured-title">${withCfmIcon(escapeHtml(m.titulo))}</h3>
         <p class="featured-desc">${desc}</p>
         <div class="featured-meta"><span class="featured-author">${escapeHtml(m.autor)}</span>
           <span class="featured-sep">·</span>
@@ -1987,7 +2101,7 @@ app.get('/top', async (req, res) => {
           <div class="card-img-box">${img}</div>
           <div class="card-content">
             <div style="margin-bottom:10px;"><span class="top-badge">#${i+1}</span><span class="tag-version">${escapeHtml(mod.version)}</span></div>
-            <h3 style="color:${titleCol};">${escapeHtml(mod.titulo)}</h3>
+            <h3 style="color:${titleCol};">${withCfmIcon(escapeHtml(mod.titulo))}</h3>
           </div>
         </a>
         <div class="card-footer" style="padding:12px 15px;margin:0;${isTop1 ? 'border-top:1px solid rgba(168,85,247,0.35);' : ''}">
@@ -2196,14 +2310,14 @@ app.get('/mod/:id', async (req, res) => {
       path: '/mod/' + mod.id,
       type: 'website'
     });
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(mod.titulo)} | Coop Free Mods</title>
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>${withCfmIcon(escapeHtml(mod.titulo))} | Coop Free Mods</title>
     ${ogHead}
     ${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
           <div style="flex:1;min-width:220px;">
-            <h1 style="color:white;margin:0 0 8px;">${badgeSemana}${escapeHtml(mod.titulo)}</h1>
+            <h1 style="color:white;margin:0 0 8px;">${badgeSemana}${withCfmIcon(escapeHtml(mod.titulo))}</h1>
             <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a>${(function(){ const cs = (mod.colaboradores||[]).map(String).filter(c => /^[A-Za-z0-9_\-]{2,24}$/.test(c)); return cs.length ? ' · Colaboran: ' + cs.map(c => '<a href="/user/' + escapeHtml(c) + '" class="author">@' + escapeHtml(c) + '</a>').join(', ') : ''; })()}</p>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;">
               <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:14px;padding:8px 14px;background:#1f2937;border-radius:8px;border:1px solid #374151;">👍 ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
@@ -2722,7 +2836,7 @@ app.get('/edit-mod/:id', async (req, res) => {
         <input type="hidden" name="archivo_path_direct" value="">
         <input type="hidden" name="archivo_nombre_direct" value="">
         <input type="hidden" name="archivo_peso_direct" value="">
-        <label>Título:</label><input type="text" name="titulo" value="${escapeHtml(mod.titulo)}" required maxlength="120">
+        <label>Título:</label><input type="text" name="titulo" value="${withCfmIcon(escapeHtml(mod.titulo))}" required maxlength="120">
         <label>Descripción:</label><textarea name="descripcion" required rows="5">${escapeHtml(mod.descripcion)}</textarea>
         <label>Versión del juego:</label><select name="version">${verOpts}</select>
         <label>Categoría:</label><select name="categoria">${catOpts}</select>
@@ -3390,7 +3504,7 @@ app.get('/foros', async (req, res) => {
       return `<a href="/foros/tema/${tm.id}" style="display:block;text-decoration:none;color:inherit;">
         <div class="comment-box" style="display:flex;justify-content:space-between;align-items:center;gap:12px;transition:transform 0.15s;">
           <div style="flex:1;min-width:0;">
-            <div style="font-weight:bold;color:white;margin-bottom:4px;">${pin}${closed}${escapeHtml(tm.titulo)}</div>
+            <div style="font-weight:bold;color:white;margin-bottom:4px;">${pin}${closed}${withCfmIcon(escapeHtml(tm.titulo))}</div>
             <div style="font-size:12px;color:#9ca3af;">
               <span class="tag-category">${escapeHtml(tm.categoria)}</span>
               · por <span class="author">@${escapeHtml(tm.autor)}</span>
@@ -3790,7 +3904,7 @@ app.get('/discord-webhook-test', async (req, res) => {
 app.get('/config', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=14"></script></head><body>
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Configuración | Coop Free Mods</title>${estilosCSS}<script src="/public/cfm-prefs.js?v=16"></script></head><body>
     ${navbar(sesion, nNotif)}
     <div class="main-container" style="max-width:560px;">
       <div class="form-box" style="margin-top:24px;">
@@ -3821,6 +3935,8 @@ app.get('/config', async (req, res) => {
             <option value="1">Tema 1 — bg-music.mp3</option>
             <option value="2">Tema 2 — bg-music-2.mp3</option>
             <option value="3">Tema 3 — bg-music-3.mp3</option>
+            <option value="4">Tema 4 — bg-music-4.mp3</option>
+            <option value="5">Tema 5 — bg-music-5.mp3</option>
           </select>
         </div>
 
@@ -3951,7 +4067,7 @@ app.get('/config', async (req, res) => {
       var extract = document.getElementById('optAutoExtract');
       var pathEl = document.getElementById('autoInstallPath');
       var msg = document.getElementById('autoInstallMsg');
-      var TRACKS = { '1': '/public/bg-music.mp3', '2': '/public/bg-music-2.mp3', '3': '/public/bg-music-3.mp3' };
+      var TRACKS = { '1': '/public/bg-music.mp3', '2': '/public/bg-music-2.mp3', '3': '/public/bg-music-3.mp3', '4': '/public/bg-music-4.mp3', '5': '/public/bg-music-5.mp3' };
       // checks se cargan en apply()/getPref más abajo
 
 
@@ -5025,7 +5141,7 @@ app.get('/cooptube', async (req, res) => {
             <div class="tags">
               <span class="tag-category">${escapeHtml(v.categoria)}</span>
             </div>
-            <h3 style="color:white;margin:0 0 10px 0;">${escapeHtml(v.titulo)}</h3>
+            <h3 style="color:white;margin:0 0 10px 0;">${withCfmIcon(escapeHtml(v.titulo))}</h3>
             <p>${escapeHtml((v.descripcion || '').slice(0, 120))}</p>
           </div>
         </a>
@@ -5227,7 +5343,7 @@ app.get('/cooptube/v/:id', async (req, res) => {
       return `<a href="/cooptube/v/${m.id}" class="ct-side-item">
         <img src="${escapeHtml(th)}" alt="">
         <div>
-          <div class="ct-side-title">${escapeHtml(m.titulo)}</div>
+          <div class="ct-side-title">${withCfmIcon(escapeHtml(m.titulo))}</div>
           <div class="ct-side-meta">@${escapeHtml(m.autor)} · 👁 ${m.vistas || 0}</div>
         </div>
       </a>`;
@@ -5272,7 +5388,7 @@ app.get('/cooptube/v/:id', async (req, res) => {
       path: '/cooptube/v/' + v.id,
       type: 'video.other'
     });
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(v.titulo)} | CoopTube</title>
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${withCfmIcon(escapeHtml(v.titulo))} | CoopTube</title>
     ${vOg}
     ${estilosCSS}
     <style>
@@ -5307,9 +5423,9 @@ app.get('/cooptube/v/:id', async (req, res) => {
         <div class="ct-layout">
           <div class="ct-main">
             <div class="ct-player">
-              <iframe src="${embed}" title="${escapeHtml(v.titulo)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe>
+              <iframe src="${embed}" title="${withCfmIcon(escapeHtml(v.titulo))}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe>
             </div>
-            <h1 style="color:white;margin:14px 0 8px 0;font-size:1.25rem;">${escapeHtml(v.titulo)}</h1>
+            <h1 style="color:white;margin:14px 0 8px 0;font-size:1.25rem;">${withCfmIcon(escapeHtml(v.titulo))}</h1>
             <div style="color:#9ca3af;font-size:13px;margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;">
               <span>
                 <span class="tag-category">${escapeHtml(v.categoria)}</span>
@@ -5584,7 +5700,7 @@ app.get('/mods-destacados', async (req, res) => {
     const img = foto ? `<img src="${escapeHtml(foto)}" style="width:48px;height:48px;object-fit:cover;border-radius:10px;">` : '📦';
     return `<div style="display:flex;align-items:center;gap:12px;padding:10px;border:1px solid #2d3139;border-radius:12px;margin-bottom:8px;">
       ${img}
-      <div style="flex:1;min-width:0;"><a href="/mod/${m.id}" style="color:#fff;font-weight:700;">${escapeHtml(m.titulo)}</a>
+      <div style="flex:1;min-width:0;"><a href="/mod/${m.id}" style="color:#fff;font-weight:700;">${withCfmIcon(escapeHtml(m.titulo))}</a>
       <div style="color:#9ca3af;font-size:12px;">@${escapeHtml(m.autor)}</div></div>
       <a href="/mod-featured/quitar/${m.id}?from=list" class="btn-delete" style="font-size:12px;">Quitar</a>
     </div>`;
@@ -5732,10 +5848,10 @@ app.get('/buscar', async (req, res) => {
   }
   const total = mods.length + users.length + foros.length + videos.length + tuts.length;
   const sec = (title, html) => html ? `<div class="info-box"><h2 style="margin-top:0;">${title}</h2>${html}</div>` : '';
-  const modsH = mods.map(m => `<a href="/mod/${m.id}" class="home-foro-row"><span class="home-foro-title">${escapeHtml(m.titulo)}</span><span class="home-foro-meta">@${escapeHtml(m.autor)} · ⬇️ ${m.descargas || 0}</span></a>`).join('');
+  const modsH = mods.map(m => `<a href="/mod/${m.id}" class="home-foro-row"><span class="home-foro-title">${withCfmIcon(escapeHtml(m.titulo))}</span><span class="home-foro-meta">@${escapeHtml(m.autor)} · ⬇️ ${m.descargas || 0}</span></a>`).join('');
   const usersH = users.map(u => `<a href="/user/${escapeHtml(u.usuario)}" class="home-foro-row"><span class="home-foro-title">@${escapeHtml(u.usuario)}</span><span class="home-foro-meta">${escapeHtml((u.bio || '').slice(0, 60))}</span></a>`).join('');
-  const forosH = foros.map(f => `<a href="/foros/tema/${f.id}" class="home-foro-row"><span class="home-foro-title">${escapeHtml(f.titulo)}</span><span class="home-foro-meta">@${escapeHtml(f.autor)} · 👁 ${f.vistas || 0}</span></a>`).join('');
-  const vidsH = videos.map(v => `<a href="/cooptube/v/${v.id}" class="home-foro-row"><span class="home-foro-title">${escapeHtml(v.titulo)}</span><span class="home-foro-meta">@${escapeHtml(v.autor)} · 👁 ${v.vistas || 0}</span></a>`).join('');
+  const forosH = foros.map(f => `<a href="/foros/tema/${f.id}" class="home-foro-row"><span class="home-foro-title">${withCfmIcon(escapeHtml(f.titulo))}</span><span class="home-foro-meta">@${escapeHtml(f.autor)} · 👁 ${f.vistas || 0}</span></a>`).join('');
+  const vidsH = videos.map(v => `<a href="/cooptube/v/${v.id}" class="home-foro-row"><span class="home-foro-title">${withCfmIcon(escapeHtml(v.titulo))}</span><span class="home-foro-meta">@${escapeHtml(v.autor)} · 👁 ${v.vistas || 0}</span></a>`).join('');
   const tutsH = tuts.map(x => `<a href="/tutoriales/${x.id}" class="home-foro-row"><span class="home-foro-title">${escapeHtml(x.titulo)}</span><span class="home-foro-meta">@${escapeHtml(x.autor || '')}</span></a>`).join('');
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Buscar${q ? ': ' + escapeHtml(q) : ''} | Coop Free Mods</title>${estilosCSS}</head><body>
     ${navbar(sesion, nNotif)}
@@ -5801,7 +5917,7 @@ app.get('/stats', async (req, res) => {
     const catRows = Object.entries(byCat).sort((a, b) => b[1] - a[1])
       .map(([c, n]) => `<tr><td>${escapeHtml(c)}</td><td style="text-align:right;">${n}</td></tr>`).join('');
     const top = [...mods].sort((a, b) => (b.descargas || 0) - (a.descargas || 0)).slice(0, 5)
-      .map((m, i) => `<li style="margin:6px 0;"><a href="/mod/${m.id}" style="color:#93c5fd;">${i + 1}. ${escapeHtml(m.titulo)}</a> — ⬇️ ${m.descargas || 0}</li>`).join('');
+      .map((m, i) => `<li style="margin:6px 0;"><a href="/mod/${m.id}" style="color:#93c5fd;">${i + 1}. ${withCfmIcon(escapeHtml(m.titulo))}</a> — ⬇️ ${m.descargas || 0}</li>`).join('');
     // último mod
     let lastModHtml = '<p style="color:#9ca3af;">Sin mods aún.</p>';
     try {
