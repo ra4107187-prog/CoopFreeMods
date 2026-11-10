@@ -247,14 +247,15 @@
     applyCursor: applyCursor
   };
 })();
-/* === CFM EXTRAS: AFK video, :cfm_icon:, toasts, logros === */
+
+/* === CFM EXTRAS: AFK, icon, toasts, logros === */
 (function () {
   'use strict';
   if (window.__cfmExtrasLoaded) return;
   window.__cfmExtrasLoaded = true;
 
   var ICON = '/public/icon.png';
-  var AFK_MS = 60000; // 1 min
+  var AFK_MS = 60000;
   var afkTimer = null;
   var afkOn = false;
   var musicWasPlaying = false;
@@ -291,8 +292,7 @@
   }
 
   function showAfk() {
-    if (afkOn) return;
-    if (document.hidden) return;
+    if (afkOn || document.hidden) return;
     afkOn = true;
     pauseMusic();
     var ov = document.createElement('div');
@@ -301,28 +301,29 @@
       '<div class="cfm-afk-inner">' +
       '<video playsinline autoplay loop muted src="/public/easter-afk.mp4"></video>' +
       '<div class="cfm-afk-fallback">' +
-      '<img src="/public/logo.png" alt="CFM" onerror="this.src=\\'/public/icon.png\\'">' +
+      '<img src="/public/logo.png" alt="CFM">' +
       '<p>Estás AFK… mové el mouse para volver</p>' +
       '</div></div>';
     document.body.appendChild(ov);
+    var img = ov.querySelector('img');
+    if (img) {
+      img.onerror = function () { this.src = ICON; };
+    }
     var vid = ov.querySelector('video');
     if (vid) {
       vid.muted = false;
       vid.volume = 0.7;
       vid.play().catch(function () {
-        // autoplay con sonido bloqueado: deja muted + fallback visible
         vid.muted = true;
         vid.play().catch(function () {});
       });
       vid.addEventListener('error', function () {
         ov.classList.add('no-video');
       });
-      // si no hay archivo, error rápido
       setTimeout(function () {
         if (vid.readyState < 2) ov.classList.add('no-video');
       }, 1500);
     }
-    // cualquier movimiento/tecla/touch cierra
     ['mousemove', 'mousedown', 'keydown', 'touchstart', 'pointerdown'].forEach(function (ev) {
       window.addEventListener(ev, hideAfk, { once: true, passive: true });
     });
@@ -346,31 +347,33 @@
   });
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', resetAfk);
-  } else resetAfk();
+  } else {
+    resetAfk();
+  }
 
-  // --- :cfm_icon: en textos ---
   function iconifyNode(root) {
     if (!root) return;
     var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     var nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
     nodes.forEach(function (node) {
-      if (!node.nodeValue || node.nodeValue.indexOf(':cfm_icon:') === -1) return;
-      if (node.parentElement && (node.parentElement.tagName === 'SCRIPT' || node.parentElement.tagName === 'STYLE')) return;
-      var parts = node.nodeValue.split(':cfm_icon:');
+      if (!node.nodeValue || node.nodeValue.toLowerCase().indexOf(':cfm_icon:') === -1) return;
+      var pe = node.parentElement;
+      if (pe && (pe.tagName === 'SCRIPT' || pe.tagName === 'STYLE' || pe.tagName === 'TEXTAREA' || pe.tagName === 'INPUT')) return;
+      var parts = node.nodeValue.split(/:cfm_icon:/i);
       var frag = document.createDocumentFragment();
       parts.forEach(function (part, i) {
         if (part) frag.appendChild(document.createTextNode(part));
         if (i < parts.length - 1) {
-          var img = document.createElement('img');
-          img.src = ICON;
-          img.alt = 'CFM';
-          img.className = 'cfm-inline-icon';
-          img.title = ':cfm_icon:';
-          frag.appendChild(img);
+          var im = document.createElement('img');
+          im.src = ICON;
+          im.alt = 'CFM';
+          im.className = 'cfm-inline-icon';
+          im.title = ':cfm_icon:';
+          frag.appendChild(im);
         }
       });
-      node.parentNode.replaceChild(frag, node);
+      if (node.parentNode) node.parentNode.replaceChild(frag, node);
     });
   }
   function runIconify() {
@@ -378,8 +381,8 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', runIconify);
   else runIconify();
+  setTimeout(runIconify, 600);
 
-  // --- Modal publicado OK ---
   function showPublishOk(msg) {
     if ($('cfm-ok-modal')) return;
     var m = document.createElement('div');
@@ -407,24 +410,23 @@
         tutorial: 'Se publicó el tutorial correctamente',
         novedad: 'Se publicó la novedad correctamente',
         pack: 'Se publicó el pack correctamente',
-        evento: 'Se publicó el evento correctamente',
-        reply: 'Respuesta publicada correctamente',
-        comment: 'Comentario publicado correctamente'
+        evento: 'Se publicó el evento correctamente'
       };
-      var msg = labels[ok] || ('Se publicó correctamente');
+      var msg = labels[ok] || 'Se publicó correctamente';
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () { showPublishOk(msg); });
-      } else showPublishOk(msg);
-      // limpiar query sin recargar feo
+      } else {
+        showPublishOk(msg);
+      }
       try {
-        sp.delete('ok'); sp.delete('publicado');
+        sp.delete('ok');
+        sp.delete('publicado');
         var clean = location.pathname + (sp.toString() ? '?' + sp.toString() : '') + location.hash;
         history.replaceState(null, '', clean);
       } catch (e) {}
     }
   } catch (e) {}
 
-  // --- Toast logros (Steam-like) ---
   function toastLogro(l) {
     var box = $('cfm-ach-stack');
     if (!box) {
@@ -469,17 +471,18 @@
             seenSet[l.id] = true;
           }
         });
-        // primera visita: no spamear todos, solo guardar
         try { localStorage.setItem(key, JSON.stringify(seen)); } catch (e) {}
       })
       .catch(function () {});
   }
   if (document.cookie.indexOf('usuarioSesion=') !== -1) {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { setTimeout(checkLogros, 800); });
-    else setTimeout(checkLogros, 800);
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { setTimeout(checkLogros, 800); });
+    } else {
+      setTimeout(checkLogros, 800);
+    }
   }
 
-  // CSS
   var st = document.createElement('style');
   st.textContent =
     '.cfm-inline-icon{height:1.15em;width:1.15em;vertical-align:-0.2em;display:inline-block;object-fit:contain;margin:0 0.1em;}' +
