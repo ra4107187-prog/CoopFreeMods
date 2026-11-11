@@ -1219,9 +1219,9 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/discord">Discord</a>
       </div>
     </div>
-    <div class="navbar-row navbar-row-extra" style="padding:6px 12px 8px;border-top:1px solid rgba(255,255,255,0.12);">
-      <div class="nav-links nav-links-sub" style="justify-content:center;flex-wrap:wrap;gap:8px;">
-        <a href="/jugar-sm64" style="font-weight:800;">🍄 Jugar SM64</a>
+    <div class="navbar-row navbar-row-extra" style="padding:10px 12px 4px;border-top:none;background:transparent;box-shadow:none;">
+      <div class="nav-links nav-links-sub" style="justify-content:center;flex-wrap:wrap;gap:8px;margin-top:4px;">
+        <a href="/jugar-sm64" style="font-weight:800;">🍄 sm64coop dx web port</a>
       </div>
     </div>
   </div>
@@ -1856,7 +1856,7 @@ app.get('/', async (req, res) => {
           <a href="/discord" class="discord-float" style="margin:0;">Discord</a>
           <a href="/saturn" class="btn-partner-glow" style="margin:0;">Saturn 64</a>
           <button type="button" id="cfm-egg-zone" aria-label="egg" style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;margin-left:6px;padding:0;border:1px solid #374151;border-radius:8px;background:#1f2937;color:#4b5563;font-size:16px;line-height:1;cursor:pointer;vertical-align:middle;">·</button>
-          <a href="/jugar-sm64" class="btn-red" style="margin:0;">🍄 Jugar SM64</a>
+          <a href="/jugar-sm64" class="btn-red" style="margin:0;">🍄 sm64coop dx web port</a>
         </div>
         <script>
         (function(){
@@ -3758,7 +3758,7 @@ app.get('/foros/cerrar/:id', async (req, res) => {
 app.get('/jugar-sm64', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Jugar SM64 | Coop Free Mods</title>${estilosCSS}
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>sm64coop dx web port | Coop Free Mods</title>${estilosCSS}
   <style>
     body.sm64-page { margin: 0; background: #0b0d12; min-height: 100vh; }
     .sm64-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
@@ -3781,7 +3781,7 @@ app.get('/jugar-sm64', async (req, res) => {
     ${navbar(sesion, nNotif)}
     <div class="sm64-wrap">
       <div class="sm64-bar">
-        <h1 style="color:#fff;margin:0;font-size:1.35rem;">🍄 Jugar SM64</h1>
+        <h1 style="color:#fff;margin:0;font-size:1.35rem;">🍄 sm64coop dx web port</h1>
         <a href="https://sm64-web.vercel.app" target="_blank" rel="noopener" class="btn-blue">Abrir en pestaña nueva</a>
         <a href="/" class="btn-gray">← Inicio</a>
       </div>
