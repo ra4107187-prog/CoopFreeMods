@@ -761,6 +761,56 @@ function buildZipStore(entries) {
   return Buffer.concat(parts.concat([centralBuf, end]));
 }
 
+
+function genSalaCodigo() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+function parseSalaMods(body) {
+  const mods = [];
+  // mods de la web: mod_ids[] o mod_ids comma
+  const idsRaw = body.mod_ids;
+  let ids = [];
+  if (Array.isArray(idsRaw)) ids = idsRaw;
+  else if (typeof idsRaw === 'string') ids = idsRaw.split(/[,\s]+/);
+  ids.forEach(x => {
+    const n = parseInt(x, 10);
+    if (n > 0) mods.push({ tipo: 'web', id: n });
+  });
+  // externos: lineas "titulo | url" o solo titulo
+  const ext = String(body.mods_externos || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  ext.forEach(line => {
+    const parts = line.split('|').map(s => s.trim());
+    if (parts.length >= 2 && /^https?:\/\//i.test(parts[1])) {
+      mods.push({ tipo: 'externo', titulo: parts[0].slice(0, 80), url: parts[1].slice(0, 300) });
+    } else {
+      mods.push({ tipo: 'externo', titulo: line.slice(0, 80), url: '' });
+    }
+  });
+  return mods.slice(0, 20);
+}
+function mapSala(row) {
+  if (!row) return null;
+  let mods = row.mods;
+  if (typeof mods === 'string') {
+    try { mods = JSON.parse(mods); } catch (e) { mods = []; }
+  }
+  if (!Array.isArray(mods)) mods = [];
+  return {
+    id: row.id,
+    codigo: row.codigo,
+    titulo: row.titulo || 'Sala',
+    host: row.host,
+    codigoConexion: row.codigo_conexion || '',
+    notas: row.notas || '',
+    mods,
+    abierta: row.abierta !== false && row.abierta !== 'false',
+    createdAt: row.created_at
+  };
+}
+
 function mapUser(row) {
   if (!row) return null;
   return {
@@ -1402,6 +1452,7 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/novedades">📰 Novedades</a>
         <a href="/tutoriales">📘 Tutoriales</a>
         <a href="/packs">📦 Packs</a>
+        <a href="/salas">🎮 Salas</a>
         <a href="/cola" id="cfm-cola-nav">🕐 Cola <span id="cfm-cola-badge" style="display:none;background:#e11d48;color:#fff;border-radius:999px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></a>
         <a href="/cooptube">📺 CoopTube</a>
         <a href="/ia-mods">🍄 ToadCode</a>
@@ -6905,6 +6956,246 @@ app.post('/api/notif-prefs', async (req, res) => {
   }
   res.json({ ok: true });
 });
+
+
+// ========== Salas (lobbies de coordinación) ==========
+app.get('/salas', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  let salas = [];
+  try {
+    const { data, error } = await supabase.from('salas').select('*').eq('abierta', true).order('created_at', { ascending: false }).limit(50);
+    if (error) throw error;
+    salas = (data || []).map(mapSala).filter(Boolean);
+  } catch (e) {
+    console.error('salas list', e);
+    return pageError(res, 500, 'Salas', 'No se pudieron cargar las salas. ¿Ejecutaste el SQL de la tabla <code>salas</code>?', sesion, nNotif);
+  }
+  // resolver títulos de mods web
+  const webIds = [...new Set(salas.flatMap(s => (s.mods || []).filter(m => m.tipo === 'web' && m.id).map(m => m.id)))];
+  const tituloById = {};
+  if (webIds.length) {
+    try {
+      const { data } = await supabase.from('mods').select('id,titulo').in('id', webIds);
+      (data || []).forEach(r => { tituloById[r.id] = r.titulo; });
+    } catch (e) {}
+  }
+  const cards = salas.map(s => {
+    const modsTxt = (s.mods || []).slice(0, 8).map(m => {
+      if (m.tipo === 'web') return escapeHtml(tituloById[m.id] || ('#' + m.id));
+      return escapeHtml(m.titulo || 'Mod externo');
+    }).join(', ') || 'Sin mods listados';
+    const extra = (s.mods || []).length > 8 ? '…' : '';
+    return `<a href="/salas/${encodeURIComponent(s.codigo)}" class="info-box" style="display:block;text-decoration:none;color:inherit;margin-bottom:12px;transition:transform .15s;">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start;">
+        <div>
+          <div style="color:#fff;font-weight:800;font-size:17px;">${escapeHtml(s.titulo)}</div>
+          <div style="color:#9ca3af;font-size:13px;margin-top:4px;">Host: <span class="author">@${escapeHtml(s.host)}</span> · Código sala: <b style="color:#93c5fd;">${escapeHtml(s.codigo)}</b></div>
+        </div>
+        <span class="tag-version" style="background:#16a34a;">ABIERTA</span>
+      </div>
+      <p style="margin:10px 0 0;color:#ced4da;font-size:13px;"><b>Mods:</b> ${modsTxt}${extra}</p>
+    </a>`;
+  }).join('') || '<p style="color:#9ca3af;">No hay salas abiertas. ¡Creá la primera!</p>';
+
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Salas | Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:820px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+        <h1 style="color:#fff;margin:0;">🎮 Salas</h1>
+        ${sesion.name ? '<a href="/salas/nueva" class="btn-red">+ Nueva sala</a>' : '<a href="/login" class="btn-red">Entrá para crear sala</a>'}
+      </div>
+      <p style="color:#9ca3af;font-size:14px;line-height:1.45;">Coordiná una partida: mismos mods, código de conexión del juego y listo. <b>La web no hostea el multiplayer</b> — solo organiza el setup. Después se conectan en Co-op como siempre.</p>
+      ${cards}
+    </div></body></html>`);
+});
+
+app.get('/salas/nueva', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const nNotif = await countNotif(sesion.name);
+  let modsOpts = '';
+  try {
+    const { data } = await supabase.from('mods').select('id,titulo,autor').order('id', { ascending: false }).limit(80);
+    modsOpts = (data || []).map(m =>
+      `<label style="display:block;margin:4px 0;color:#ced4da;font-size:13px;"><input type="checkbox" name="mod_ids" value="${m.id}"> #${m.id} ${escapeHtml(m.titulo)} <span style="color:#6b7280;">@${escapeHtml(m.autor)}</span></label>`
+    ).join('');
+  } catch (e) {}
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Nueva sala | Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:640px;">
+      <h1 style="color:#fff;">+ Nueva sala</h1>
+      <form action="/salas/nueva" method="POST" class="info-box">
+        <label>Nombre de la sala</label>
+        <input type="text" name="titulo" required maxlength="60" placeholder="Ej: Noche de hangouts" style="width:100%;margin-bottom:12px;">
+        <label>Código / cómo conectar en el juego</label>
+        <input type="text" name="codigo_conexion" maxlength="120" placeholder="IP, código de sala del juego, “miren Discord”, etc." style="width:100%;margin-bottom:12px;">
+        <label>Notas (opcional)</label>
+        <textarea name="notas" rows="2" maxlength="300" placeholder="Hora, versión DX/EX, voz…" style="width:100%;margin-bottom:12px;"></textarea>
+        <label>Mods de Coop Free Mods (marcá hasta 15)</label>
+        <div style="max-height:220px;overflow:auto;border:1px solid #2d3139;border-radius:8px;padding:10px;margin-bottom:12px;background:#0f1115;">
+          ${modsOpts || '<p style="color:#9ca3af;">No hay mods en la web.</p>'}
+        </div>
+        <label>Mods que no están en la web (uno por línea)</label>
+        <textarea name="mods_externos" rows="4" placeholder="Nombre del mod&#10;Otro mod | https://mediafire.com/...&#10;Mi pack local (sin link)" style="width:100%;margin-bottom:12px;"></textarea>
+        <p style="color:#6b7280;font-size:12px;">Formato opcional: <code>Título | https://enlace</code></p>
+        <button type="submit" class="btn-red">Crear sala</button>
+        <a href="/salas" class="btn-gray" style="margin-left:8px;">Cancelar</a>
+      </form>
+    </div></body></html>`);
+});
+
+app.post('/salas/nueva', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name || sesion.banneado) return res.redirect('/login');
+  if (!rateLimit('sala-nueva:' + sesion.name, 5000)) return pageError(res, 429, 'Esperá', 'Creá otra sala en unos segundos.', sesion, 0);
+  const titulo = String(req.body.titulo || '').trim().slice(0, 60);
+  if (!titulo) return res.redirect('/salas/nueva');
+  const codigo_conexion = String(req.body.codigo_conexion || '').trim().slice(0, 120);
+  const notas = String(req.body.notas || '').trim().slice(0, 300);
+  const mods = parseSalaMods(req.body);
+  // limitar checkboxes web a 15
+  const web = mods.filter(m => m.tipo === 'web').slice(0, 15);
+  const ext = mods.filter(m => m.tipo === 'externo').slice(0, 10);
+  const modsFinal = web.concat(ext).slice(0, 20);
+  let codigo = genSalaCodigo();
+  for (let i = 0; i < 5; i++) {
+    const { data: exists } = await supabase.from('salas').select('id').eq('codigo', codigo).maybeSingle();
+    if (!exists) break;
+    codigo = genSalaCodigo();
+  }
+  const { data, error } = await supabase.from('salas').insert({
+    codigo,
+    titulo,
+    host: sesion.name,
+    codigo_conexion,
+    notas,
+    mods: modsFinal,
+    abierta: true
+  }).select('codigo').single();
+  if (error) {
+    console.error(error);
+    return pageError(res, 500, 'Error', 'No se pudo crear la sala. ¿Tabla <code>salas</code> creada en Supabase?', sesion, 0);
+  }
+  res.redirect('/salas/' + (data.codigo || codigo));
+});
+
+app.get('/salas/:codigo', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const codigo = String(req.params.codigo || '').toUpperCase().trim();
+  try {
+    const { data, error } = await supabase.from('salas').select('*').eq('codigo', codigo).maybeSingle();
+    if (error) throw error;
+    const sala = mapSala(data);
+    if (!sala) return pageError(res, 404, 'Sala no encontrada', 'Esa sala no existe o el código es incorrecto.', sesion, nNotif);
+
+    const webIds = (sala.mods || []).filter(m => m.tipo === 'web' && m.id).map(m => m.id);
+    let modsWeb = [];
+    if (webIds.length) {
+      const { data: md } = await supabase.from('mods').select('*').in('id', webIds);
+      modsWeb = (md || []).map(mapMod).filter(Boolean);
+    }
+    const byId = {};
+    modsWeb.forEach(m => { byId[m.id] = m; });
+
+    const listaMods = (sala.mods || []).map(m => {
+      if (m.tipo === 'web') {
+        const mod = byId[m.id];
+        const nombre = mod ? mod.titulo : ('Mod #' + m.id);
+        const link = mod ? `/mod/${m.id}` : '#';
+        const external = mod && mod.archivoPath && /^https?:\/\//i.test(String(mod.archivoPath));
+        return `<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 0;border-bottom:1px solid #2d3139;">
+          <div><a href="${link}" style="color:#93c5fd;font-weight:700;">${escapeHtml(nombre)}</a>
+          <span style="color:#6b7280;font-size:12px;"> · web #${m.id}${external ? ' · enlace externo' : ''}</span></div>
+          ${mod ? `<a href="/download/${m.id}" class="btn-gray" style="font-size:12px;padding:6px 10px;">⬇️</a>` : ''}
+        </div>`;
+      }
+      const url = m.url ? `<a href="${escapeHtml(m.url)}" target="_blank" rel="noopener" class="btn-gray" style="font-size:12px;padding:6px 10px;">Link</a>` : '<span style="color:#6b7280;font-size:12px;">sin link</span>';
+      return `<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 0;border-bottom:1px solid #2d3139;">
+        <div><span style="color:#fff;font-weight:700;">${escapeHtml(m.titulo || 'Mod externo')}</span>
+        <span style="color:#fbbf24;font-size:12px;"> · no está en CFM</span></div>${url}
+      </div>`;
+    }).join('') || '<p style="color:#9ca3af;">Esta sala no listó mods.</p>';
+
+    const webIdsCola = webIds.filter(id => byId[id]);
+    const isHost = sesion.name && sesion.name === sala.host;
+    const cerrarBtn = isHost && sala.abierta
+      ? `<form action="/salas/${encodeURIComponent(sala.codigo)}/cerrar" method="POST" style="display:inline;" onsubmit="return confirm('¿Cerrar esta sala?');"><button type="submit" class="btn-gray" style="background:#3f1d1d;border-color:#7f1d1d;color:#fecaca;">Cerrar sala</button></form>`
+      : '';
+    const estado = sala.abierta
+      ? '<span class="tag-version" style="background:#16a34a;">ABIERTA</span>'
+      : '<span class="tag-version" style="background:#6b7280;">CERRADA</span>';
+
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>${escapeHtml(sala.titulo)} | Salas</title>${estilosCSS}</head><body>
+      ${navbar(sesion, nNotif)}
+      <div class="main-container" style="max-width:720px;">
+        <p><a href="/salas" class="btn-gray">← Salas</a></p>
+        <div class="info-box">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start;">
+            <h1 style="color:#fff;margin:0;">${escapeHtml(sala.titulo)} ${estado}</h1>
+            ${cerrarBtn}
+          </div>
+          <p style="color:#9ca3af;margin:10px 0;">Host: <a href="/user/${escapeHtml(sala.host)}" class="author">@${escapeHtml(sala.host)}</a>
+            · Código de sala CFM: <b style="color:#93c5fd;letter-spacing:0.06em;">${escapeHtml(sala.codigo)}</b></p>
+          <div style="background:#0f1115;border:1px solid #374151;border-radius:12px;padding:16px;margin:14px 0;">
+            <div style="color:#9ca3af;font-size:12px;font-weight:700;letter-spacing:0.04em;">CÓDIGO / CÓMO CONECTAR EN EL JUEGO</div>
+            <div style="color:#fff;font-size:20px;font-weight:800;margin-top:6px;word-break:break-word;">${escapeHtml(sala.codigoConexion || 'El host no puso código — coordinen por Discord/chat')}</div>
+          </div>
+          ${sala.notas ? `<p style="color:#ced4da;">${escapeHtml(sala.notas)}</p>` : ''}
+        </div>
+        <div class="info-box">
+          <h2 style="margin-top:0;color:#fff;">Mods de la sesión</h2>
+          ${listaMods}
+          <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
+            ${webIdsCola.length ? `<button type="button" class="btn-red" id="btn-cola-sala" data-ids="${webIdsCola.join(',')}">🕐 Añadir mods CFM a la cola</button>
+            <a class="btn-blue" href="/cola/zip?ids=${webIdsCola.join(',')}">⬇️ ZIP de mods CFM</a>` : ''}
+            <a href="/cola" class="btn-gray">Ver cola</a>
+          </div>
+          <p style="color:#6b7280;font-size:12px;margin-top:10px;">Los mods que no están en la web o son solo enlace externo no entran en el ZIP automático.</p>
+        </div>
+      </div>
+      <script>
+      (function(){
+        var btn = document.getElementById('btn-cola-sala');
+        if (!btn || !window.cfmCola) return;
+        btn.addEventListener('click', function(){
+          var ids = (btn.getAttribute('data-ids')||'').split(',').map(function(x){ return parseInt(x,10); }).filter(Boolean);
+          var ok = 0, fail = 0;
+          ids.forEach(function(id){
+            var r = window.cfmCola.add(id);
+            if (r && r.ok) ok++; else fail++;
+          });
+          alert('Añadidos a la cola: '+ok+(fail ? '. No se pudieron: '+fail+' (¿cola llena?)' : ''));
+          location.href = '/cola';
+        });
+      })();
+      </script>
+    </body></html>`);
+  } catch (e) {
+    console.error(e);
+    pageError(res, 500, 'Error', 'No se pudo cargar la sala.', sesion, nNotif);
+  }
+});
+
+app.post('/salas/:codigo/cerrar', async (req, res) => {
+  const sesion = await getSesion(req);
+  if (!sesion.name) return res.redirect('/login');
+  const codigo = String(req.params.codigo || '').toUpperCase().trim();
+  try {
+    const { data } = await supabase.from('salas').select('*').eq('codigo', codigo).maybeSingle();
+    if (!data) return res.redirect('/salas');
+    if (data.host !== sesion.name && !sesion.esMod) {
+      return pageError(res, 403, 'No permitido', 'Solo el host o un moderador puede cerrar la sala.', sesion, 0);
+    }
+    await supabase.from('salas').update({ abierta: false }).eq('codigo', codigo);
+    res.redirect('/salas/' + codigo);
+  } catch (e) {
+    console.error(e);
+    res.redirect('/salas');
+  }
+});
+
 
 app.get('/packs', async (req, res) => {
   const sesion = await getSesion(req);
