@@ -1452,8 +1452,6 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/novedades">📰 Novedades</a>
         <a href="/tutoriales">📘 Tutoriales</a>
         <a href="/packs">📦 Packs</a>
-        <a href="/salas">🎮 Salas</a>
-        <a href="/cola" id="cfm-cola-nav">🕐 Cola <span id="cfm-cola-badge" style="display:none;background:#e11d48;color:#fff;border-radius:999px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></a>
         <a href="/cooptube">📺 CoopTube</a>
         <a href="/ia-mods">🍄 ToadCode</a>
         <a href="/mensajes">✉️ Mensajes</a>
@@ -1464,8 +1462,10 @@ function navbar(sesion, nNotif, extra, opts) {
       </div>
     </div>
     <div class="navbar-row navbar-row-extra" style="padding:10px 12px 4px;border-top:none;background:transparent;box-shadow:none;">
-      <div class="nav-links nav-links-sub" style="justify-content:center;flex-wrap:wrap;gap:8px;margin-top:4px;">
+      <div class="nav-links nav-links-sub" style="justify-content:center;flex-wrap:wrap;gap:12px;margin-top:4px;">
         <a href="/jugar-sm64" style="font-weight:800;">🍄 sm64coop dx web port</a>
+        <a href="/cola" id="cfm-cola-nav" style="font-weight:800;">🕐 Cola <span id="cfm-cola-badge" style="display:none;background:#e11d48;color:#fff;border-radius:999px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></a>
+        <a href="/salas" style="font-weight:800;">🎮 Salas</a>
       </div>
     </div>
   </div>
@@ -2581,8 +2581,10 @@ app.get('/mod/:id', async (req, res) => {
           </div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
-            <button type="button" class="btn-gray" data-cola-add="${mod.id}" style="font-size:14px;padding:12px 16px;cursor:pointer;">🕐 Descargar más tarde</button>
           </div>
+        </div>
+        <div style="margin:-8px 0 20px 0;">
+          <button type="button" class="btn-gray" data-cola-add="${mod.id}" style="font-size:13px;padding:10px 14px;cursor:pointer;">🕐 Descargar más tarde</button>
         </div>
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:25px;">
           <div class="info-box"><h2>Descripción</h2><p>${escapeHtml(mod.descripcion)}</p>${fotos}</div>
