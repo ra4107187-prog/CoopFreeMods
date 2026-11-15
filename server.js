@@ -413,7 +413,8 @@ function mapVideo(row) {
     created_at: row.created_at
   };
 }
-function renderVideoCards(videos) {
+function renderVideoCards(videos, avatarMap) {
+  avatarMap = avatarMap || {};
   if (!videos || !videos.length) return '';
   return videos.map(v => {
     if (!v) return '';
@@ -426,7 +427,7 @@ function renderVideoCards(videos) {
         </div>
         <div class="card-content">
           <h3 style="color:white;margin:0 0 6px 0;">${withCfmIcon(escapeHtml(v.titulo))} <span style="color:#9ca3af;font-size:12px;font-weight:600;">(video)</span></h3>
-          <p style="color:#9ca3af;font-size:12px;margin:0;">👁 ${v.vistas || 0} · 👍 ${v.likes || 0} · ${escapeHtml(v.categoria || '')}</p>
+          <p style="color:#9ca3af;font-size:12px;margin:0;">${authorWithAvatar(v.autor, avatarMap)} · 👁 ${v.vistas || 0} · 👍 ${v.likes || 0}</p>
         </div>
       </a>
     </div>`;
@@ -657,6 +658,109 @@ async function getTop1ModId() {
   } catch (e) {}
   return null;
 }
+
+/** Mapa usuario -> avatar_url (batch) */
+async function fetchAvatarMap(usernames) {
+  const map = Object.create(null);
+  const list = [...new Set((usernames || []).map(u => String(u || '').trim()).filter(Boolean))];
+  if (!list.length) return map;
+  try {
+    // Supabase .in límite razonable: trocear
+    for (let i = 0; i < list.length; i += 80) {
+      const chunk = list.slice(i, i + 80);
+      const { data } = await supabase.from('usuarios').select('usuario,avatar_url').in('usuario', chunk);
+      (data || []).forEach(row => {
+        if (row && row.usuario) map[row.usuario] = row.avatar_url || null;
+      });
+    }
+  } catch (e) {
+    console.error('fetchAvatarMap', e);
+  }
+  return map;
+}
+function avatarSmHtml(username, avatarUrl) {
+  const u = String(username || '?');
+  if (avatarUrl) {
+    return `<img class="cfm-avatar-sm" src="${escapeHtml(avatarUrl)}" alt="">`;
+  }
+  const letter = escapeHtml((u.charAt(0) || '?').toUpperCase());
+  return `<span class="cfm-avatar-sm ph" aria-hidden="true">${letter}</span>`;
+}
+function authorWithAvatar(username, avatarMap, extraStyle) {
+  const u = String(username || '???');
+  const url = avatarMap && avatarMap[u] ? avatarMap[u] : null;
+  const st = extraStyle ? ` style="${extraStyle}"` : '';
+  return `<span class="cfm-author-row"><a href="/user/${escapeHtml(u)}" class="author"${st}>${avatarSmHtml(u, url)}@${escapeHtml(u)}</a></span>`;
+}
+
+
+/** ZIP sin compresión (store) — para cola de descargas */
+function crc32(buf) {
+  let c = ~0;
+  for (let i = 0; i < buf.length; i++) {
+    c ^= buf[i];
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return ~c >>> 0;
+}
+function buildZipStore(entries) {
+  // entries: [{ name: string, data: Buffer }]
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const enc = (s) => Buffer.from(String(s).replace(/\\/g, '/').replace(/^\/+/, ''), 'utf8');
+  for (const e of entries) {
+    const nameBuf = enc(e.name).slice(0, 180);
+    const data = Buffer.isBuffer(e.data) ? e.data : Buffer.from(e.data || []);
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(0, 8); // store
+    local.writeUInt16LE(0, 10);
+    local.writeUInt16LE(0, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    local.writeUInt16LE(0, 28);
+    parts.push(local, nameBuf, data);
+    const cen = Buffer.alloc(46);
+    cen.writeUInt32LE(0x02014b50, 0);
+    cen.writeUInt16LE(20, 4);
+    cen.writeUInt16LE(20, 6);
+    cen.writeUInt16LE(0, 8);
+    cen.writeUInt16LE(0, 10);
+    cen.writeUInt16LE(0, 12);
+    cen.writeUInt16LE(0, 14);
+    cen.writeUInt32LE(crc, 16);
+    cen.writeUInt32LE(data.length, 20);
+    cen.writeUInt32LE(data.length, 24);
+    cen.writeUInt16LE(nameBuf.length, 28);
+    cen.writeUInt16LE(0, 30);
+    cen.writeUInt16LE(0, 32);
+    cen.writeUInt16LE(0, 34);
+    cen.writeUInt16LE(0, 36);
+    cen.writeUInt32LE(0, 38);
+    cen.writeUInt32LE(offset, 42);
+    central.push(cen, nameBuf);
+    offset += local.length + nameBuf.length + data.length;
+  }
+  const centralStart = offset;
+  const centralBuf = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralBuf.length, 12);
+  end.writeUInt32LE(centralStart, 16);
+  end.writeUInt16LE(0, 20);
+  return Buffer.concat(parts.concat([centralBuf, end]));
+}
+
 function mapUser(row) {
   if (!row) return null;
   return {
@@ -1082,6 +1186,94 @@ function navbar(sesion, nNotif, extra, opts) {
 <script src="/public/cfm-prefs.js?v=17"></script>${CFM_SHARE_SCRIPT}
 <script>
 (function(){
+  var KEY = 'cfm_cola_v1';
+  var MAX = 20;
+  function read(){
+    try {
+      var a = JSON.parse(localStorage.getItem(KEY) || '[]');
+      if (!Array.isArray(a)) return [];
+      return a.map(function(x){ return parseInt(x,10); }).filter(function(n){ return n > 0; }).slice(0, MAX);
+    } catch(e){ return []; }
+  }
+  function write(a){
+    try { localStorage.setItem(KEY, JSON.stringify(a.slice(0, MAX))); } catch(e){}
+    updateBadge();
+  }
+  function updateBadge(){
+    var a = read();
+    var b = document.getElementById('cfm-cola-badge');
+    if (!b) return;
+    if (a.length) { b.style.display = 'inline'; b.textContent = String(a.length); }
+    else { b.style.display = 'none'; }
+  }
+  window.cfmCola = {
+    list: read,
+    has: function(id){ return read().indexOf(parseInt(id,10)) >= 0; },
+    add: function(id){
+      id = parseInt(id,10);
+      if (!id) return { ok:false, msg:'ID inválido' };
+      var a = read();
+      if (a.indexOf(id) >= 0) return { ok:true, msg:'Ya está en la cola', a:a };
+      if (a.length >= MAX) return { ok:false, msg:'Máximo ' + MAX + ' mods en la cola' };
+      a.push(id);
+      write(a);
+      return { ok:true, msg:'Añadido a la cola', a:a };
+    },
+    remove: function(id){
+      id = parseInt(id,10);
+      var a = read().filter(function(x){ return x !== id; });
+      write(a);
+      return a;
+    },
+    clear: function(){ write([]); }
+  };
+  function boot(){
+    updateBadge();
+    document.querySelectorAll('[data-cola-add]').forEach(function(btn){
+      var id = btn.getAttribute('data-cola-add');
+      if (window.cfmCola.has(id)) {
+        btn.textContent = '✓ En la cola';
+        btn.classList.add('in-cola');
+      }
+      btn.addEventListener('click', function(ev){
+        ev.preventDefault();
+        var r = window.cfmCola.add(id);
+        if (r.ok) {
+          btn.textContent = '✓ En la cola';
+          btn.classList.add('in-cola');
+        }
+        alert(r.msg);
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+
+<script>
+(function(){
+  try {
+    var isApp = false;
+    try { isApp = !!(window.CFMAndroid && window.CFMAndroid.isApp && window.CFMAndroid.isApp()); } catch(e) {}
+    if (!isApp) return;
+    document.documentElement.classList.add('cfm-android-app');
+    if (document.getElementById('cfm-android-nav')) return;
+    var nav = document.createElement('nav');
+    nav.id = 'cfm-android-nav';
+    nav.innerHTML =
+      '<a href="/"><span>🏠</span>Inicio</a>' +
+      '<a href="/mods"><span>📦</span>Mods</a>' +
+      '<a href="/buscar"><span>🔍</span>Buscar</a>' +
+      '<a href="/top"><span>⭐</span>Top</a>' +
+      '<a href="/config"><span>⚙️</span>Config</a>';
+    document.body.appendChild(nav);
+  } catch(e) {}
+})();
+</script>
+
+<script>
+(function(){
   if (window.__cfmInlineExtras) return;
   window.__cfmInlineExtras = true;
   // :cfm_icon: por si el prefs viejo no carga
@@ -1210,6 +1402,7 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/novedades">📰 Novedades</a>
         <a href="/tutoriales">📘 Tutoriales</a>
         <a href="/packs">📦 Packs</a>
+        <a href="/cola" id="cfm-cola-nav">🕐 Cola <span id="cfm-cola-badge" style="display:none;background:#e11d48;color:#fff;border-radius:999px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></a>
         <a href="/cooptube">📺 CoopTube</a>
         <a href="/ia-mods">🍄 ToadCode</a>
         <a href="/mensajes">✉️ Mensajes</a>
@@ -1433,7 +1626,8 @@ function navbar(sesion, nNotif, extra, opts) {
   })();
   </script>`;
 }
-function renderModCards(mods, sesion, top1Id) {
+function renderModCards(mods, sesion, top1Id, avatarMap) {
+  avatarMap = avatarMap || {};
   if (!mods.length) return '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">No se encontraron mods.</p>';
   return mods.map(mod => {
     const numCom = (mod.comentarios || []).filter(c => !c.parentId).length;
@@ -1463,7 +1657,7 @@ function renderModCards(mods, sesion, top1Id) {
         </div>
       </a>
       <div class="card-footer" style="padding:12px 15px;margin:0;${footerBorder}">
-        <span>por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></span>
+        <span>por ${authorWithAvatar(mod.autor, avatarMap)}</span>
         <div style="display:flex;gap:10px;align-items:center;color:#9ca3af;font-size:12px;pointer-events:none;">
           <span title="Descargas">⬇️ ${mod.descargas || 0}</span>
           <span title="Comentarios">💬 ${numCom}</span>
@@ -2037,6 +2231,7 @@ app.get('/mods', async (req, res) => {
       featuredModsPage = (feat || []).map(mapMod).filter(Boolean).slice(0, 8);
     } catch (e) {}
     const featuredBlock = renderFeaturedCarouselBlock(featuredModsPage, sesion, { id: 'featuredCarouselMods', title: '✨ Mods destacados' });
+    const avatarMap = await fetchAvatarMap(pg.slice.map(m => m.autor).concat(featuredModsPage.map(m => m.autor)));
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mods | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
@@ -2071,7 +2266,7 @@ app.get('/mods', async (req, res) => {
           <button type="submit" class="btn-blue">Filtrar</button>
         </form>
         <p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${pg.total} mods encontrados · Página ${pg.page} de ${pg.totalPages}</p>
-        <div class="grid">${renderModCards(pg.slice, sesion, top1Id)}</div>
+        <div class="grid">${renderModCards(pg.slice, sesion, top1Id, avatarMap)}</div>
         ${renderPagination('/mods', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria, orden: orden === 'nuevos' ? '' : orden, tag: req.query.tag || '' })}
       </div>
     </body></html>`);
@@ -2110,7 +2305,7 @@ app.get('/top', async (req, res) => {
           </div>
         </a>
         <div class="card-footer" style="padding:12px 15px;margin:0;${isTop1 ? 'border-top:1px solid rgba(168,85,247,0.35);' : ''}">
-          <span>por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a></span>
+          <span>por ${authorWithAvatar(mod.autor, avatarMap)}</span>
           <span style="pointer-events:none;">⬇️ ${mod.descargas || 0}</span>
         </div>
       </div>`;
@@ -2161,7 +2356,8 @@ app.get('/favoritos', async (req, res) => {
     let comboHtml = '';
     if (vids.length) comboHtml += renderVideoCards(vids);
     const top1IdFav = await getTop1ModId();
-    if (mods.length) comboHtml += renderModCards(mods, sesion, top1IdFav);
+    const avFav = await fetchAvatarMap(mods.map(m => m.autor));
+    if (mods.length) comboHtml += renderModCards(mods, sesion, top1IdFav, avFav);
     if (!comboHtml) comboHtml = '<p style="color:#9ca3af;grid-column:1/-1;text-align:center;padding:40px;">Todavía no tenés favoritos. Dale like a un mod o video.</p>';
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Favoritos | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
@@ -2189,11 +2385,12 @@ app.get('/mis-mods', async (req, res) => {
     } catch (e) { console.error('mis-mods videos', e); }
     const pg = paginateList(mods, req.query.page, 30);
     const top1IdMis = await getTop1ModId();
+    const avatarMapMis = await fetchAvatarMap(pg.slice.map(m => m.autor));
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mis mods | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
         <h2>📦 Mis mods</h2>
-        <div class="grid">${renderModCards(pg.slice, sesion, top1IdMis)}</div>
+        <div class="grid">${renderModCards(pg.slice, sesion, top1IdMis, avatarMapMis)}</div>
         ${renderPagination('/mis-mods', pg.page, pg.totalPages)}
         <h2 style="margin-top:28px;">📺 Mis videos <span style="color:#9ca3af;font-size:14px;font-weight:600;">(video)</span></h2>
         <div class="grid">${vids.length ? renderVideoCards(vids) : '<p style="color:#9ca3af;">No publicaste videos en CoopTube todavía.</p>'}</div>
@@ -2231,6 +2428,8 @@ app.get('/mod/:id', async (req, res) => {
     ).join('') || '<p style="color:#9ca3af;font-size:13px;">Sin actualizaciones.</p>';
 
     const comments = mod.comentarios || [];
+    const avatarNames = [mod.autor].concat((mod.colaboradores||[])).concat(comments.map(c => c.usuario)).concat((mod.reviews||[]).map(r => r.usuario));
+    const avatarMap = await fetchAvatarMap(avatarNames);
     const roots = comments.filter(c => !c.parentId);
     const repliesOf = id => comments.filter(c => c.parentId === id);
     const canDelComment = (c) => sesion.name && (c.usuario === sesion.name || sesion.esMod);
@@ -2323,7 +2522,7 @@ app.get('/mod/:id', async (req, res) => {
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:15px;">
           <div style="flex:1;min-width:220px;">
             <h1 style="color:white;margin:0 0 8px;">${badgeSemana}${withCfmIcon(escapeHtml(mod.titulo))}</h1>
-            <p style="margin:0;color:#9ca3af;">Creado por <a href="/user/${escapeHtml(mod.autor)}" class="author">@${escapeHtml(mod.autor)}</a>${(function(){ const cs = (mod.colaboradores||[]).map(String).filter(c => /^[A-Za-z0-9_\-]{2,24}$/.test(c)); return cs.length ? ' · Colaboran: ' + cs.map(c => '<a href="/user/' + escapeHtml(c) + '" class="author">@' + escapeHtml(c) + '</a>').join(', ') : ''; })()}</p>
+            <p style="margin:0;color:#9ca3af;display:flex;flex-wrap:wrap;align-items:center;gap:6px;">Creado por ${authorWithAvatar(mod.autor, avatarMap)}${(function(){ const cs = (mod.colaboradores||[]).map(String).filter(c => /^[A-Za-z0-9_\-]{2,24}$/.test(c)); return cs.length ? ' · Colaboran: ' + cs.map(c => authorWithAvatar(c, avatarMap)).join(' ') : ''; })()}</p>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;">
               <a href="/like/${mod.id}" class="${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'btn-like active' : 'btn-like'}" style="font-size:14px;padding:8px 14px;background:#1f2937;border-radius:8px;border:1px solid #374151;">👍 ${(sesion.name && mod.usuariosLike.includes(sesion.name)) ? 'Quitar like' : 'Like'} (${mod.likes})</a>
               ${bShare}${bEdit}${bDel}${bSemana}${bFeatured}
@@ -2331,6 +2530,7 @@ app.get('/mod/:id', async (req, res) => {
           </div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <a href="/download/${mod.id}" class="btn-red" style="font-size:16px;padding:12px 25px;">⬇️ Descargar</a>
+            <button type="button" class="btn-gray" data-cola-add="${mod.id}" style="font-size:14px;padding:12px 16px;cursor:pointer;">🕐 Descargar más tarde</button>
           </div>
         </div>
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:25px;">
@@ -2484,7 +2684,7 @@ app.get('/user/:username', async (req, res) => {
           <div style="display:flex;gap:10px;flex-wrap:wrap;">${bMsg}${bFollow}${bMod}</div>
         </div>
         <h2>📦 Mods de este usuario</h2>
-        <div class="grid">${renderModCards(userMods, sesion, top1IdUser)}</div>
+        <div class="grid">${renderModCards(userMods, sesion, top1IdUser, avatarMapUser)}</div>
         <h2 style="margin-top:28px;">📺 Videos en CoopTube <span style="color:#9ca3af;font-size:14px;font-weight:600;">(video)</span></h2>
         <div class="grid">${userVideos.length ? renderVideoCards(userVideos) : '<p style="color:#9ca3af;">Este usuario aún no publicó videos.</p>'}</div>
       </div>
@@ -3482,6 +3682,7 @@ app.get('/foros', async (req, res) => {
     const { data, error } = await q;
     if (error) throw error;
     let temas = data || [];
+    const avatarMap = await fetchAvatarMap(temas.map(tm => tm.autor));
     if (buscarForo) {
       temas = temas.filter(tm => {
         if (/^\d+$/.test(buscarForo) && String(tm.id) === buscarForo) return true;
@@ -3512,7 +3713,7 @@ app.get('/foros', async (req, res) => {
             <div style="font-weight:bold;color:white;margin-bottom:4px;">${pin}${closed}${withCfmIcon(escapeHtml(tm.titulo))}</div>
             <div style="font-size:12px;color:#9ca3af;">
               <span class="tag-category">${escapeHtml(tm.categoria)}</span>
-              · por <span class="author">@${escapeHtml(tm.autor)}</span>
+              · ${authorWithAvatar(tm.autor, avatarMap || {})}
               · ${fecha}
             </div>
           </div>
@@ -3609,6 +3810,7 @@ app.get('/foros/tema/:id', async (req, res) => {
       });
     }
     const { data: respuestas } = await supabase.from('foro_respuestas').select('*').eq('tema_id', id).order('created_at', { ascending: true });
+    const avatarMap = await fetchAvatarMap([tema.autor].concat((respuestas || []).map(r => r.autor)));
     const canMod = sesion.esMod;
     const canDelTema = sesion.name === tema.autor || canMod;
     let modBtns = '';
@@ -3641,7 +3843,7 @@ app.get('/foros/tema/:id', async (req, res) => {
       const font = isChild ? 'font-size:12px;color:#9ca3af;' : 'color:#ced4da;';
       return `<div class="${boxClass}">
         ${del}
-        <a href="/user/${escapeHtml(r.autor)}" class="author" style="${isChild ? 'font-size:12px;' : ''}">@${escapeHtml(r.autor)}</a>
+        ${authorWithAvatar(r.autor, avatarMap, isChild ? 'font-size:12px;' : '')}
         <span style="font-size:11px;color:#6b7280;margin-left:8px;">${rf}</span>
         <div style="margin:8px 0 0;${font}">${renderUserTextWithShares(r.contenido, foroShareMap)}</div>
         ${subReply}
@@ -3669,7 +3871,7 @@ app.get('/foros/tema/:id', async (req, res) => {
               ${tema.fijado ? '<span class="top-badge">Fijado</span>' : ''}
               ${tema.cerrado ? '<span class="banned-badge">Cerrado</span>' : ''}
               <h1 style="color:white;margin:10px 0;">${escapeHtml(tema.titulo)}</h1>
-              <p style="color:#9ca3af;font-size:13px;margin:0;">por <a href="/user/${escapeHtml(tema.autor)}" class="author">@${escapeHtml(tema.autor)}</a> · ${fecha} · 👁 ${tema.vistas || 0}</p>
+              <p style="color:#9ca3af;font-size:13px;margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px;">por ${authorWithAvatar(tema.autor, avatarMap)} · ${fecha} · 👁 ${tema.vistas || 0}</p>
             </div>
             <div>${modBtns}</div>
           </div>
@@ -5730,6 +5932,245 @@ app.get('/api/logros-mine', async (req, res) => {
     return res.json({ ok: false, logros: [] });
   }
 });
+
+
+app.get('/cola', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Cola de descargas | Coop Free Mods</title>${estilosCSS}
+  <style>
+    .cola-card { display:flex; gap:14px; align-items:center; flex-wrap:wrap; background:#1a1f2a; border:1px solid #2d3139; border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+    .cola-card img { width:64px; height:64px; object-fit:cover; border-radius:8px; background:#111; }
+    .cola-card .meta { flex:1; min-width:160px; }
+    .cola-card .actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .cola-hint { color:#9ca3af; font-size:13px; line-height:1.45; }
+    .cola-empty { color:#9ca3af; padding:24px; text-align:center; }
+    .btn-danger-soft { background:#3f1d1d; color:#fecaca; border:1px solid #7f1d1d; border-radius:8px; padding:8px 12px; cursor:pointer; text-decoration:none; font-size:13px; }
+  </style>
+  </head><body>
+  ${navbar(sesion, nNotif)}
+  <div class="main-container" style="max-width:820px;">
+    <h1 style="color:#fff;margin:0 0 8px;">🕐 Cola de descargas</h1>
+    <p class="cola-hint">Guardá mods para bajarlos después. Mínimo <b>2</b> y máximo <b>20</b> para “Descargar todo” en un solo ZIP.
+      Los mods con <b>enlace externo</b> (MediaFire, Drive, Mega…) no entran en el ZIP: los bajás uno por uno.</p>
+    <div id="cola-list" class="cola-empty">Cargando…</div>
+    <div id="cola-summary" style="margin-top:16px;"></div>
+    <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button type="button" id="cola-zip-btn" class="btn-red" style="display:none;padding:12px 20px;">⬇️ Descargar todo (ZIP)</button>
+      <button type="button" id="cola-clear" class="btn-gray" style="display:none;">Vaciar cola</button>
+      <a href="/mods" class="btn-blue">Ver mods</a>
+    </div>
+    <p id="cola-status" class="cola-hint" style="margin-top:12px;"></p>
+  </div>
+  <script>
+  (function(){
+    var listEl = document.getElementById('cola-list');
+    var sumEl = document.getElementById('cola-summary');
+    var zipBtn = document.getElementById('cola-zip-btn');
+    var clearBtn = document.getElementById('cola-clear');
+    var statusEl = document.getElementById('cola-status');
+    var cache = {};
+
+    function ids(){ return (window.cfmCola && window.cfmCola.list()) || []; }
+
+    function renderEmpty(){
+      listEl.className = 'cola-empty';
+      listEl.innerHTML = 'La cola está vacía.<br><a href="/mods" style="color:#93c5fd;">Agregá mods</a> con “Descargar más tarde”.';
+      sumEl.innerHTML = '';
+      zipBtn.style.display = 'none';
+      clearBtn.style.display = 'none';
+    }
+
+    function render(){
+      var a = ids();
+      if (!a.length) { renderEmpty(); return; }
+      clearBtn.style.display = 'inline-block';
+      listEl.className = '';
+      listEl.innerHTML = a.map(function(id){
+        var m = cache[id];
+        if (!m) return '<div class="cola-card" data-id="'+id+'">Cargando #'+id+'…</div>';
+        var thumb = (m.rutasImagenes && m.rutasImagenes[0]) ? '<img src="'+m.rutasImagenes[0]+'" alt="">' : '<div style="width:64px;height:64px;border-radius:8px;background:#111;display:flex;align-items:center;justify-content:center;">📦</div>';
+        var ext = m.external ? '<span style="color:#fbbf24;font-size:12px;"> · enlace externo</span>' : '';
+        return '<div class="cola-card" data-id="'+id+'">'+
+          thumb+
+          '<div class="meta"><a href="/mod/'+id+'" style="color:#fff;font-weight:700;text-decoration:none;">'+escapeHtml(m.titulo||('Mod #'+id))+'</a>'+
+          '<div style="color:#9ca3af;font-size:12px;margin-top:4px;">@'+escapeHtml(m.autor||'?')+' · '+(m.categoria||'')+ext+'</div></div>'+
+          '<div class="actions">'+
+          '<a class="btn-red" style="padding:8px 12px;font-size:13px;" href="/download/'+id+'">⬇️ Descargar</a>'+
+          '<button type="button" class="btn-danger-soft" data-remove="'+id+'">Quitar</button>'+
+          '</div></div>';
+      }).join('');
+      listEl.querySelectorAll('[data-remove]').forEach(function(btn){
+        btn.onclick = function(){
+          window.cfmCola.remove(btn.getAttribute('data-remove'));
+          render();
+          loadMissing();
+        };
+      });
+      var ok = a.filter(function(id){ return cache[id] && !cache[id].external && cache[id].hasFile; });
+      var skip = a.filter(function(id){ return cache[id] && (cache[id].external || !cache[id].hasFile); });
+      var pending = a.filter(function(id){ return !cache[id]; });
+      sumEl.innerHTML = '<div class="info-box" style="margin:0;"><b style="color:#fff;">Resumen</b><p class="cola-hint" style="margin:8px 0 0;">En cola: <b>'+a.length+'</b>/20'+
+        (ok.length ? '<br>En el ZIP entrarán: <b style="color:#86efac;">'+ok.length+'</b>' : '')+
+        (skip.length ? '<br>No entran al ZIP (enlace externo o sin archivo): <b style="color:#fbbf24;">'+skip.map(function(id){ return (cache[id]&&cache[id].titulo)||('#'+id); }).join(', ')+'</b>' : '')+
+        (pending.length ? '<br>Cargando info…' : '')+
+        '</p></div>';
+      if (a.length >= 2 && a.length <= 20 && ok.length >= 1 && pending.length === 0) {
+        zipBtn.style.display = 'inline-block';
+        zipBtn.disabled = false;
+        zipBtn.textContent = '⬇️ Descargar todo (ZIP) · '+ok.length+' mod(s)';
+      } else if (a.length < 2) {
+        zipBtn.style.display = 'inline-block';
+        zipBtn.disabled = true;
+        zipBtn.textContent = '⬇️ Descargar todo (mínimo 2 mods)';
+      } else {
+        zipBtn.style.display = 'inline-block';
+        zipBtn.disabled = pending.length > 0 || ok.length < 1;
+        zipBtn.textContent = '⬇️ Descargar todo (ZIP)';
+      }
+    }
+
+    function escapeHtml(s){
+      return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function loadMissing(){
+      var a = ids();
+      var need = a.filter(function(id){ return !cache[id]; });
+      if (!need.length) { render(); return; }
+      fetch('/api/cola-info?ids='+need.join(','), { credentials:'same-origin' })
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          if (data && data.mods) {
+            data.mods.forEach(function(m){ cache[m.id] = m; });
+          }
+          render();
+        })
+        .catch(function(){ render(); });
+      render();
+    }
+
+    clearBtn.onclick = function(){
+      if (!confirm('¿Vaciar la cola?')) return;
+      window.cfmCola.clear();
+      renderEmpty();
+    };
+
+    zipBtn.onclick = function(){
+      var a = ids();
+      if (a.length < 2 || a.length > 20) {
+        statusEl.textContent = 'La cola debe tener entre 2 y 20 mods.';
+        return;
+      }
+      statusEl.textContent = 'Preparando ZIP… puede tardar un poco.';
+      zipBtn.disabled = true;
+      window.location.href = '/cola/zip?ids=' + a.join(',');
+      setTimeout(function(){ zipBtn.disabled = false; statusEl.textContent = 'Si el ZIP no bajó, revisá que haya al menos un mod con archivo en la web (no solo enlace externo).'; }, 4000);
+    };
+
+    loadMissing();
+  })();
+  </script>
+  </body></html>`);
+});
+
+app.get('/api/cola-info', async (req, res) => {
+  try {
+    const raw = String(req.query.ids || '');
+    const ids = [...new Set(raw.split(',').map(x => parseInt(x, 10)).filter(n => n > 0))].slice(0, 20);
+    if (!ids.length) return res.json({ mods: [] });
+    const { data } = await supabase.from('mods').select('id,titulo,autor,categoria,archivo_path,rutas_imagenes').in('id', ids);
+    const mods = (data || []).map(row => {
+      const path = row.archivo_path || '';
+      const external = /^https?:\/\//i.test(path);
+      return {
+        id: row.id,
+        titulo: row.titulo,
+        autor: row.autor,
+        categoria: row.categoria,
+        rutasImagenes: row.rutas_imagenes || [],
+        external,
+        hasFile: !!path
+      };
+    });
+    res.json({ mods });
+  } catch (e) {
+    console.error(e);
+    res.json({ mods: [] });
+  }
+});
+
+app.get('/cola/zip', async (req, res) => {
+  try {
+    const raw = String(req.query.ids || '');
+    const ids = [...new Set(raw.split(',').map(x => parseInt(x, 10)).filter(n => n > 0))].slice(0, 20);
+    if (ids.length < 2 || ids.length > 20) {
+      return pageError(res, 400, 'Cola inválida', 'La descarga masiva requiere entre 2 y 20 mods.', await getSesion(req), 0);
+    }
+    const { data } = await supabase.from('mods').select('*').in('id', ids);
+    const byId = {};
+    (data || []).forEach(r => { byId[r.id] = r; });
+
+    const entries = [];
+    const included = [];
+    const skipped = [];
+    for (const id of ids) {
+      const row = byId[id];
+      if (!row) { skipped.push({ id, reason: 'no encontrado' }); continue; }
+      const mod = mapMod(row);
+      const ap = mod.archivoPath || '';
+      if (!ap) { skipped.push({ id, titulo: mod.titulo, reason: 'sin archivo' }); continue; }
+      if (/^https?:\/\//i.test(ap)) { skipped.push({ id, titulo: mod.titulo, reason: 'enlace externo' }); continue; }
+      try {
+        const { data: fileData, error } = await supabase.storage.from('mods-files').download(ap);
+        if (error || !fileData) {
+          skipped.push({ id, titulo: mod.titulo, reason: 'no se pudo bajar del storage' });
+          continue;
+        }
+        const buf = Buffer.from(await fileData.arrayBuffer());
+        const ext = path.extname(ap) || path.extname(row.nombre_archivo_real || '') || '.zip';
+        let base = (mod.titulo || 'mod').replace(/[<>:"/\\\\|?*\\x00-\\x1F]/g, '').replace(/\\s+/g, ' ').trim().slice(0, 80) || ('mod-' + id);
+        const fname = id + ' - ' + base + (ext.startsWith('.') ? ext : '.' + ext);
+        entries.push({ name: fname, data: buf });
+        included.push({ id, titulo: mod.titulo });
+        try { await supabase.from('mods').update({ descargas: (mod.descargas || 0) + 1 }).eq('id', id); } catch (e) {}
+      } catch (e) {
+        console.error('cola zip mod', id, e);
+        skipped.push({ id, titulo: mod.titulo, reason: 'error' });
+      }
+    }
+
+    if (!entries.length) {
+      const sesion = await getSesion(req);
+      const nNotif = await countNotif(sesion.name);
+      const lista = skipped.map(s => '· ' + escapeHtml(s.titulo || ('#' + s.id)) + ' (' + escapeHtml(s.reason) + ')').join('<br>');
+      return pageError(res, 400, 'Nada para empaquetar',
+        'Ningún mod de la cola tiene archivo alojado en la web.<br><br>Omitidos:<br>' + lista +
+        '<br><br>Los de enlace externo descargalos uno por uno desde la cola.',
+        sesion, nNotif);
+    }
+
+    // README dentro del zip
+    const readme = Buffer.from(
+      'Coop Free Mods — Cola de descargas\\n' +
+      'Incluidos (' + included.length + '):\\n' +
+      included.map(x => '- #' + x.id + ' ' + x.titulo).join('\\n') + '\\n\\n' +
+      (skipped.length ? ('No incluidos:\\n' + skipped.map(x => '- #' + x.id + ' ' + (x.titulo || '') + ' [' + x.reason + ']').join('\\n') + '\\n') : ''),
+      'utf8'
+    );
+    entries.unshift({ name: 'LEEME-cola-cfm.txt', data: readme });
+
+    const zipBuf = buildZipStore(entries);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', "attachment; filename*=UTF-8''cola-coop-free-mods.zip");
+    res.setHeader('Content-Length', zipBuf.length);
+    res.send(zipBuf);
+  } catch (e) {
+    console.error('cola/zip', e);
+    pageError(res, 500, 'Error', 'No se pudo crear el ZIP de la cola.', await getSesion(req), 0);
+  }
+});
+
 
 app.get('/buscar', async (req, res) => {
   const sesion = await getSesion(req);
