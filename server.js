@@ -807,9 +807,22 @@ function mapSala(row) {
     notas: row.notas || '',
     mods,
     abierta: row.abierta !== false && row.abierta !== 'false',
+    webPort: !!(row.web_port),
     createdAt: row.created_at
   };
 }
+function sm64WebPortUrl(codigoConexion) {
+  const base = 'https://sm64-web.vercel.app/';
+  const c = String(codigoConexion || '').trim();
+  if (!c) return base;
+  // link compartible: la web port abre y el código se puede copiar; si el port soporta query, se pasa room
+  try {
+    return base + '?room=' + encodeURIComponent(c.slice(0, 80));
+  } catch (e) {
+    return base;
+  }
+}
+
 
 function mapUser(row) {
   if (!row) return null;
@@ -1782,6 +1795,12 @@ app.get('/', async (req, res) => {
       packsHome = (pks || []).map(mapPack).filter(Boolean);
     } catch (e) { console.error('packs home', e); }
 
+    let salasHome = [];
+    try {
+      const { data: sls } = await supabase.from('salas').select('*').eq('abierta', true).order('created_at', { ascending: false }).limit(5);
+      salasHome = (sls || []).map(mapSala).filter(Boolean);
+    } catch (e) { console.error('salas home', e); }
+
     let autoresTop = [];
     try {
       const mapA = {};
@@ -1809,7 +1828,7 @@ app.get('/', async (req, res) => {
       const { data: feat } = await supabase.from('mods').select('*').eq('featured', true).order('id', { ascending: false }).limit(8);
       featuredMods = (feat || []).map(mapMod).filter(Boolean).slice(0, 8);
     } catch (e) { /* columna featured opcional */ }
-    let statsPub = { mods: mods.length, descargas: 0, usuarios: 0, videos: 0, foros: forosRec.length, packs: 0, eventos: 0 };
+    let statsPub = { mods: mods.length, descargas: 0, usuarios: 0, videos: 0, foros: forosRec.length, packs: 0, eventos: 0, salas: 0 };
     try {
       statsPub.descargas = mods.reduce((s, m) => s + (m.descargas || 0), 0);
       const { count: nu } = await supabase.from('usuarios').select('*', { count: 'exact', head: true });
@@ -2014,6 +2033,15 @@ app.get('/', async (req, res) => {
               <div class="home-list">${videosRec.map(miniVideo).join('') || '<p style="color:#9ca3af;">Aún no hay videos. <a href="/cooptube" style="color:#93c5fd;">Ir a CoopTube</a></p>'}</div>
               <p style="margin:10px 0 0 0;"><a href="/cooptube" class="btn-gray" style="font-size:12px;">Ver CoopTube →</a></p>
             </div>
+            <div class="home-section">
+              <h2>🎮 Salas abiertas</h2>
+              <div class="home-list">${(salasHome || []).map(s => {
+                const nMods = (s.mods || []).length;
+                const web = s.webPort ? ' · 🌐 web' : '';
+                return `<a href="/salas/${encodeURIComponent(s.codigo)}" class="home-foro-row"><span class="home-foro-title">${escapeHtml(s.titulo)}</span><span class="home-foro-meta">@${escapeHtml(s.host)} · ${nMods} mods${web}</span></a>`;
+              }).join('') || '<p style="color:#9ca3af;">No hay salas abiertas. <a href="/salas/nueva" style="color:#93c5fd;">Crear una</a></p>'}</div>
+              <p style="margin:10px 0 0 0;"><a href="/salas" class="btn-gray" style="font-size:12px;">Ver salas →</a></p>
+            </div>
           </div>
           <aside class="home-side">
             <div class="home-side-box">
@@ -2025,6 +2053,7 @@ app.get('/', async (req, res) => {
                 <div><b style="color:#fff;font-size:18px;">${statsPub.videos}</b><br>videos</div>
                 <div><b style="color:#fff;font-size:18px;">${statsPub.packs || 0}</b><br>packs</div>
                 <div><b style="color:#fff;font-size:18px;">${statsPub.eventos || 0}</b><br>eventos</div>
+                <div><b style="color:#fff;font-size:18px;">${statsPub.salas || 0}</b><br>salas</div>
               </div>
               <p style="margin:10px 0 0;"><a href="/stats" class="btn-gray" style="font-size:12px;">Ver más →</a></p>
             </div>
@@ -6312,7 +6341,7 @@ app.get('/stats', async (req, res) => {
     const onlineCount = await countOnlineUsers(15);
     const mods = allMods || [];
     const { count: nUsers } = await supabase.from('usuarios').select('*', { count: 'exact', head: true });
-    let nVideos = 0, nForos = 0, nPacks = 0, nEventos = 0, nNovedades = 0;
+    let nVideos = 0, nForos = 0, nPacks = 0, nEventos = 0, nNovedades = 0, nSalas = 0, nSalasAbiertas = 0, nColaNote = 0;
     try {
       const v = await supabase.from('videos').select('*', { count: 'exact', head: true });
       nVideos = v.count || 0;
@@ -6332,6 +6361,12 @@ app.get('/stats', async (req, res) => {
     try {
       const nv = await supabase.from('novedades').select('*', { count: 'exact', head: true });
       nNovedades = nv.count || 0;
+    } catch (e) {}
+    try {
+      const sAll = await supabase.from('salas').select('*', { count: 'exact', head: true });
+      nSalas = sAll.count || 0;
+      const sOpen = await supabase.from('salas').select('*', { count: 'exact', head: true }).eq('abierta', true);
+      nSalasAbiertas = sOpen.count || 0;
     } catch (e) {}
     const totalDesc = mods.reduce((s, m) => s + (m.descargas || 0), 0);
     const totalLikes = mods.reduce((s, m) => s + (m.likes || 0), 0);
@@ -6377,6 +6412,11 @@ app.get('/stats', async (req, res) => {
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nPacks}</div><div style="color:#9ca3af;">Packs</div></div>
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nEventos}</div><div style="color:#9ca3af;">Eventos</div></div>
           <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nNovedades}</div><div style="color:#9ca3af;">Novedades</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#86efac;">${nSalasAbiertas}</div><div style="color:#9ca3af;">Salas abiertas</div></div>
+          <div class="info-box" style="text-align:center;margin:0;"><div style="font-size:28px;font-weight:800;color:#fff;">${nSalas}</div><div style="color:#9ca3af;">Salas (total)</div></div>
+        </div>
+        <div class="info-box"><h2>Salas y web port</h2>
+          <p style="color:#ced4da;font-size:14px;line-height:1.45;margin:0;">Las <a href="/salas" style="color:#93c5fd;">salas</a> coordinan mods + código de conexión. Las marcadas como <b>web port</b> enlazan a <a href="https://sm64-web.vercel.app/" target="_blank" rel="noopener" style="color:#93c5fd;">sm64-web.vercel.app</a> (sm64coop dx web port). La web <b>no hostea</b> el multiplayer del juego.</p>
         </div>
         <div class="info-box"><h2>Por categoría</h2>
           <table class="meta-table">${catRows || '<tr><td>Sin datos</td></tr>'}</table>
@@ -6992,7 +7032,7 @@ app.get('/salas', async (req, res) => {
       <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start;">
         <div>
           <div style="color:#fff;font-weight:800;font-size:17px;">${escapeHtml(s.titulo)}</div>
-          <div style="color:#9ca3af;font-size:13px;margin-top:4px;">Host: <span class="author">@${escapeHtml(s.host)}</span> · Código sala: <b style="color:#93c5fd;">${escapeHtml(s.codigo)}</b></div>
+          <div style="color:#9ca3af;font-size:13px;margin-top:4px;">Host: <span class="author">@${escapeHtml(s.host)}</span> · Código sala: <b style="color:#93c5fd;">${escapeHtml(s.codigo)}</b>${s.webPort ? ' · <span style="color:#86efac;">🌐 web port</span>' : ''}</div>
         </div>
         <span class="tag-version" style="background:#16a34a;">ABIERTA</span>
       </div>
@@ -7031,7 +7071,11 @@ app.get('/salas/nueva', async (req, res) => {
         <label>Nombre de la sala</label>
         <input type="text" name="titulo" required maxlength="60" placeholder="Ej: Noche de hangouts" style="width:100%;margin-bottom:12px;">
         <label>Código / cómo conectar en el juego</label>
-        <input type="text" name="codigo_conexion" maxlength="120" placeholder="IP, código de sala del juego, “miren Discord”, etc." style="width:100%;margin-bottom:12px;">
+        <input type="text" name="codigo_conexion" maxlength="120" placeholder="IP, código de sala del juego, room del web port, “miren Discord”…" style="width:100%;margin-bottom:12px;">
+        <label style="display:flex;align-items:center;gap:8px;color:#ced4da;margin-bottom:12px;">
+          <input type="checkbox" name="web_port" value="1" checked>
+          Compatible con <b>sm64coop dx web port</b> (https://sm64-web.vercel.app/)
+        </label>
         <label>Notas (opcional)</label>
         <textarea name="notas" rows="2" maxlength="300" placeholder="Hora, versión DX/EX, voz…" style="width:100%;margin-bottom:12px;"></textarea>
         <label>Mods de Coop Free Mods (marcá hasta 15)</label>
@@ -7066,6 +7110,7 @@ app.post('/salas/nueva', async (req, res) => {
     if (!exists) break;
     codigo = genSalaCodigo();
   }
+  const web_port = req.body.web_port === '1' || req.body.web_port === 'on';
   const { data, error } = await supabase.from('salas').insert({
     codigo,
     titulo,
@@ -7073,7 +7118,8 @@ app.post('/salas/nueva', async (req, res) => {
     codigo_conexion,
     notas,
     mods: modsFinal,
-    abierta: true
+    abierta: true,
+    web_port
   }).select('codigo').single();
   if (error) {
     console.error(error);
@@ -7143,6 +7189,16 @@ app.get('/salas/:codigo', async (req, res) => {
           <div style="background:#0f1115;border:1px solid #374151;border-radius:12px;padding:16px;margin:14px 0;">
             <div style="color:#9ca3af;font-size:12px;font-weight:700;letter-spacing:0.04em;">CÓDIGO / CÓMO CONECTAR EN EL JUEGO</div>
             <div style="color:#fff;font-size:20px;font-weight:800;margin-top:6px;word-break:break-word;">${escapeHtml(sala.codigoConexion || 'El host no puso código — coordinen por Discord/chat')}</div>
+            ${sala.webPort ? `
+            <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+              <a href="${escapeHtml(sm64WebPortUrl(sala.codigoConexion))}" target="_blank" rel="noopener" class="btn-red">🌐 Abrir sm64coop dx web port</a>
+              <a href="https://sm64-web.vercel.app/" target="_blank" rel="noopener" class="btn-gray">sm64-web.vercel.app</a>
+              <a href="/jugar-sm64" class="btn-blue">Desde CFM</a>
+            </div>
+            <p style="color:#6b7280;font-size:12px;margin:10px 0 0;">Sala marcada como compatible con el port web. Abrí el port, usá el código de arriba y los mismos mods si aplica.</p>
+            ` : `
+            <p style="color:#6b7280;font-size:12px;margin:10px 0 0;">Si juegan en navegador: <a href="https://sm64-web.vercel.app/" target="_blank" rel="noopener" style="color:#93c5fd;">sm64-web.vercel.app</a> · <a href="/jugar-sm64" style="color:#93c5fd;">sección en CFM</a></p>
+            `}
           </div>
           ${sala.notas ? `<p style="color:#ced4da;">${escapeHtml(sala.notas)}</p>` : ''}
         </div>
