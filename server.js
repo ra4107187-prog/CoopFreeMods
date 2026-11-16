@@ -1454,34 +1454,101 @@ function navbar(sesion, nNotif, extra, opts) {
         ${mid}
         ${extra || ''}
         ${authLinks(sesion, nNotif || 0)}
-      </div>
-    </div>
-    <div class="navbar-row navbar-row-sub">
-      <div class="nav-links nav-links-sub">
-        <a href="/usuarios">👥 Usuarios</a>
-        <a href="/autores">⭐ Autores</a>
-        <a href="/eventos">📅 Eventos</a>
-        <a href="/logros">🏅 Logros</a>
-        <a href="/novedades">📰 Novedades</a>
-        <a href="/tutoriales">📘 Tutoriales</a>
-        <a href="/packs">📦 Packs</a>
-        <a href="/cooptube">📺 CoopTube</a>
-        <a href="/ia-mods">🍄 ToadCode</a>
-        <a href="/mensajes">✉️ Mensajes</a>
-        <a href="/stats">📡 Estado</a>
-        <a href="/app-pc">💻 App PC</a>
-        <a href="/buscar">🔍 Buscar</a>
-        <a href="/discord">Discord</a>
-      </div>
-    </div>
-    <div class="navbar-row navbar-row-extra" style="padding:10px 12px 4px;border-top:none;background:transparent;box-shadow:none;">
-      <div class="nav-links nav-links-sub" style="justify-content:center;flex-wrap:wrap;gap:12px;margin-top:4px;">
-        <a href="/jugar-sm64" style="font-weight:800;">🍄 sm64coop dx web port</a>
-        <a href="/cola" id="cfm-cola-nav" style="font-weight:800;">🕐 Cola <span id="cfm-cola-badge" style="display:none;background:#e11d48;color:#fff;border-radius:999px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></a>
-        <a href="/salas" style="font-weight:800;">🎮 Salas</a>
+        <div class="cfm-more-wrap">
+          <button type="button" class="cfm-more-btn" id="cfm-more-btn" aria-label="Más secciones" aria-expanded="false" title="Más secciones">
+            <span class="cfm-more-lines" aria-hidden="true"><span></span><span></span><span></span></span>
+          </button>
+          <div class="cfm-more-panel" id="cfm-more-panel" hidden>
+            <div class="cfm-more-grid">
+              <a href="/usuarios">👥 Usuarios</a>
+              <a href="/autores">⭐ Autores</a>
+              <a href="/eventos">📅 Eventos</a>
+              <a href="/logros">🏅 Logros</a>
+              <a href="/novedades">📰 Novedades</a>
+              <a href="/tutoriales">📘 Tutoriales</a>
+              <a href="/packs">📦 Packs</a>
+              <a href="/cooptube">📺 CoopTube</a>
+              <a href="/ia-mods">🍄 ToadCode</a>
+              <a href="/mensajes">✉️ Mensajes</a>
+              <a href="/stats">📡 Estado</a>
+              <a href="/app-pc">💻 App PC</a>
+              <a href="/buscar">🔍 Buscar</a>
+              <a href="/discord">Discord</a>
+              <a href="/jugar-sm64">🍄 sm64 web port</a>
+              <a href="/cola" id="cfm-cola-nav">🕐 Cola <span id="cfm-cola-badge" style="display:none;background:#e11d48;color:#fff;border-radius:999px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></a>
+              <a href="/salas">🎮 Salas</a>
+              <a href="/saturn">🪐 Saturn 64</a>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
+  <style>
+    .cfm-more-wrap { position: relative; display: inline-flex; align-items: center; margin-left: 4px; }
+    .cfm-more-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 40px; height: 36px; padding: 0; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.25); border-radius: 10px;
+      background: rgba(15,23,42,0.35); color: #fff;
+    }
+    .cfm-more-btn:hover, .cfm-more-btn[aria-expanded="true"] {
+      background: rgba(225,29,72,0.35); border-color: #e11d48;
+    }
+    .cfm-more-lines { display: flex; flex-direction: column; gap: 5px; width: 18px; }
+    .cfm-more-lines span {
+      display: block; height: 2px; width: 100%; border-radius: 2px; background: #fff;
+    }
+    .cfm-more-panel {
+      position: absolute; right: 0; top: calc(100% + 8px); z-index: 100000;
+      min-width: min(320px, 92vw); max-width: 92vw;
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      border: 1px solid #334155; border-radius: 14px;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.45);
+      padding: 10px;
+    }
+    .cfm-more-panel[hidden] { display: none !important; }
+    .cfm-more-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    }
+    .cfm-more-grid a {
+      display: block; padding: 10px 12px; border-radius: 10px;
+      color: #e5e7eb !important; text-decoration: none !important;
+      font-size: 13px; font-weight: 700; white-space: nowrap;
+    }
+    .cfm-more-grid a:hover {
+      background: rgba(225,29,72,0.2); color: #fff !important;
+    }
+    @media (max-width: 640px) {
+      .cfm-more-grid { grid-template-columns: 1fr; }
+      .cfm-more-panel { right: auto; left: 50%; transform: translateX(-50%); }
+    }
+  </style>
+  <script>
+  (function(){
+    var btn = document.getElementById('cfm-more-btn');
+    var panel = document.getElementById('cfm-more-panel');
+    if (!btn || !panel) return;
+    function close() {
+      panel.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+    }
+    function open() {
+      panel.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+    }
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      if (panel.hidden) open(); else close();
+    });
+    document.addEventListener('click', function(e){
+      if (!panel.hidden && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)) close();
+    });
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') close();
+    });
+  })();
+  </script>
   <script>
   (function(){
     try {
@@ -2730,24 +2797,31 @@ app.post('/reply/:modId/:parentId', async (req, res) => {
 });
 
 app.get('/user/:username', async (req, res) => {
+  let sesion = { name: null, banneado: false, esMod: false, superAdmin: false };
+  let nNotif = 0;
   try {
-    const sesion = await getSesion(req);
-    const nNotif = await countNotif(sesion.name);
-    const username = req.params.username;
-    let { data: userRow } = await supabase.from('usuarios').select('*').eq('usuario', username).single();
-    const user = userRow ? mapUser(userRow) : { usuario: username, descripcion: 'Usuario', fechaRegistro: '—', seguidores: [], banneado: false, avatarUrl: null };
+    sesion = await getSesion(req);
+    nNotif = await countNotif(sesion.name);
+    const username = String(req.params.username || '').trim();
+    if (!username) return pageError(res, 404, 'Usuario', 'Nombre inválido.', sesion, nNotif);
+    // .maybeSingle evita error/colgado si no existe la fila
+    let { data: userRow, error: userErr } = await supabase.from('usuarios').select('*').eq('usuario', username).maybeSingle();
+    if (userErr) console.error('user profile', userErr);
+    const user = userRow ? mapUser(userRow) : { usuario: username, descripcion: 'Usuario (sin cuenta registrada)', fechaRegistro: '—', seguidores: [], banneado: false, avatarUrl: null, usaAppPc: false, usaAppAndroid: false };
     if (!user.seguidores) user.seguidores = [];
     if (!Array.isArray(user.seguidores)) user.seguidores = normalizeStringArray(user.seguidores);
     const { data: modsData } = await supabase.from('mods').select('*').eq('autor', username).order('id', { ascending: false });
-    const userMods = (modsData || []).map(mapMod);
+    const userMods = (modsData || []).map(mapMod).filter(Boolean);
     const top1IdUser = await getTop1ModId();
-    const userBadges = await computeUserBadges(username);
+    let userBadges = [];
+    try { userBadges = await computeUserBadges(username); } catch (e) { console.error('badges profile', e); }
     const badgesHtml = renderBadgesHtml(userBadges);
     let userVideos = [];
     try {
       const { data: vids } = await supabase.from('videos').select('*').eq('autor', username).order('created_at', { ascending: false }).limit(30);
       userVideos = (vids || []).map(mapVideo).filter(Boolean);
     } catch (e) {}
+    const avatarMapUser = await fetchAvatarMap([username].concat(userMods.map(m => m.autor)).concat(userVideos.map(v => v.autor)));
     let bFollow = '';
     let bMsg = '';
     if (sesion.name && sesion.name !== user.usuario) {
@@ -2798,10 +2872,17 @@ app.get('/user/:username', async (req, res) => {
         <h2>📦 Mods de este usuario</h2>
         <div class="grid">${renderModCards(userMods, sesion, top1IdUser, avatarMapUser)}</div>
         <h2 style="margin-top:28px;">📺 Videos en CoopTube <span style="color:#9ca3af;font-size:14px;font-weight:600;">(video)</span></h2>
-        <div class="grid">${userVideos.length ? renderVideoCards(userVideos) : '<p style="color:#9ca3af;">Este usuario aún no publicó videos.</p>'}</div>
+        <div class="grid">${userVideos.length ? renderVideoCards(userVideos, avatarMapUser) : '<p style="color:#9ca3af;">Este usuario aún no publicó videos.</p>'}</div>
       </div>
     </body></html>`);
-  } catch (e) { console.error(e); pageError(res, 500, 'Error', 'No se pudo cargar la página.', sesion, nNotif); }
+  } catch (e) {
+    console.error('GET /user', e);
+    try {
+      pageError(res, 500, 'Error', 'No se pudo cargar el perfil.', sesion, nNotif);
+    } catch (e2) {
+      if (!res.headersSent) res.status(500).send('Error al cargar el perfil');
+    }
+  }
 });
 
 app.get('/ban/:username', async (req, res) => {
