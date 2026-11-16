@@ -2585,6 +2585,32 @@ app.get('/mod/:id', async (req, res) => {
     const badgeSemana = (mod.destacado ? '<span class="tag-version" style="background:linear-gradient(135deg,#f5d76e,#d4a017);color:#1a1205;border:none;">⭐ MOD DE LA SEMANA</span> ' : '')
       + (isTop1Detail ? '<span class="tag-version" style="background:linear-gradient(135deg,#c084fc,#7c3aed);color:#fff;border:none;">🏆 TOP 1</span> ' : '');
 
+    // Mods que te puedan interesar (aleatorios, máx. 10, sin el actual)
+    let interesHtml = '<p style="color:#9ca3af;font-size:13px;margin:0;">No hay otros mods todavía.</p>';
+    try {
+      const { data: pool } = await supabase.from('mods').select('id,titulo,autor,categoria,descargas,rutas_imagenes').neq('id', mod.id).limit(80);
+      const arr = (pool || []).slice();
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+      }
+      const pick = arr.slice(0, 10);
+      if (pick.length) {
+        interesHtml = pick.map(m => {
+          const th = (m.rutas_imagenes && m.rutas_imagenes[0])
+            ? `<img src="${escapeHtml(m.rutas_imagenes[0])}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:8px;flex-shrink:0;">`
+            : `<div style="width:40px;height:40px;border-radius:8px;background:#1f2937;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px;">📦</div>`;
+          return `<a href="/mod/${m.id}" style="display:flex;gap:10px;align-items:center;text-decoration:none;color:inherit;padding:8px 0;border-bottom:1px solid #2d3139;">
+            ${th}
+            <div style="min-width:0;flex:1;">
+              <div style="color:#fff;font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${withCfmIcon(escapeHtml(m.titulo || 'Mod'))}</div>
+              <div style="color:#9ca3af;font-size:11px;margin-top:2px;">@${escapeHtml(m.autor || '?')} · ⬇️ ${m.descargas || 0}</div>
+            </div>
+          </a>`;
+        }).join('');
+      }
+    } catch (e) { console.error('interes mods', e); }
+
     const ogImg = (mod.rutasImagenes && mod.rutasImagenes[0]) ? mod.rutasImagenes[0] : '/public/logo.png';
     const ogDesc = (mod.descripcion || '') + ' — por @' + (mod.autor || '') + ' · ' + (mod.descargas || 0) + ' descargas · ' + (mod.version || '');
     const ogHead = ogMetaTags(req, {
@@ -2631,6 +2657,10 @@ app.get('/mod/:id', async (req, res) => {
               </table>
             </div>
             <div class="info-box"><h2>🔄 Historial</h2>${updates}</div>
+            <div class="info-box" style="margin-top:16px;">
+              <h2 style="margin-top:0;">✨ Mods que te puedan interesar</h2>
+              <div>${interesHtml}</div>
+            </div>
           </div>
         </div>
         <div class="info-box" style="margin-top:25px;"><h2>⭐ Reseñas (${mod.ratingCount || 0})</h2>
