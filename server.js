@@ -1441,7 +1441,7 @@ function navbar(sesion, nNotif, extra, opts) {
 })();
 </script>
 
-  <div class="navbar">
+  <div class="navbar" id="cfm-navbar">
     <div class="navbar-row navbar-row-main">
       <div class="brand"><a href="${logoHref}"><img src="${logoSrc}" class="brand-logo" alt="Logo"></a></div>
       <div class="nav-links nav-links-main">
@@ -1454,7 +1454,7 @@ function navbar(sesion, nNotif, extra, opts) {
         ${mid}
         ${extra || ''}
         ${authLinks(sesion, nNotif || 0)}
-        <div class="cfm-more-wrap">
+        <div class="cfm-more-wrap cfm-nav-compact-only">
           <button type="button" class="cfm-more-btn" id="cfm-more-btn" aria-label="Más secciones" aria-expanded="false" title="Más secciones">
             <span class="cfm-more-lines" aria-hidden="true"><span></span><span></span><span></span></span>
           </button>
@@ -1475,12 +1475,37 @@ function navbar(sesion, nNotif, extra, opts) {
               <a href="/buscar">🔍 Buscar</a>
               <a href="/discord">Discord</a>
               <a href="/jugar-sm64">🍄 sm64 web port</a>
-              <a href="/cola" id="cfm-cola-nav">🕐 Cola <span id="cfm-cola-badge" style="display:none;background:#e11d48;color:#fff;border-radius:999px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></a>
+              <a href="/cola" id="cfm-cola-nav-compact">🕐 Cola</a>
               <a href="/salas">🎮 Salas</a>
               <a href="/saturn">🪐 Saturn 64</a>
             </div>
           </div>
         </div>
+      </div>
+    </div>
+    <div class="navbar-row navbar-row-sub cfm-nav-full-only">
+      <div class="nav-links nav-links-sub">
+        <a href="/usuarios">👥 Usuarios</a>
+        <a href="/autores">⭐ Autores</a>
+        <a href="/eventos">📅 Eventos</a>
+        <a href="/logros">🏅 Logros</a>
+        <a href="/novedades">📰 Novedades</a>
+        <a href="/tutoriales">📘 Tutoriales</a>
+        <a href="/packs">📦 Packs</a>
+        <a href="/cooptube">📺 CoopTube</a>
+        <a href="/ia-mods">🍄 ToadCode</a>
+        <a href="/mensajes">✉️ Mensajes</a>
+        <a href="/stats">📡 Estado</a>
+        <a href="/app-pc">💻 App PC</a>
+        <a href="/buscar">🔍 Buscar</a>
+        <a href="/discord">Discord</a>
+      </div>
+    </div>
+    <div class="navbar-row navbar-row-extra cfm-nav-full-only" style="padding:10px 12px 4px;border-top:none;background:transparent;box-shadow:none;">
+      <div class="nav-links nav-links-sub" style="justify-content:center;flex-wrap:wrap;gap:12px;margin-top:4px;">
+        <a href="/jugar-sm64" style="font-weight:800;">🍄 sm64coop dx web port</a>
+        <a href="/cola" id="cfm-cola-nav" style="font-weight:800;">🕐 Cola <span id="cfm-cola-badge" style="display:none;background:#e11d48;color:#fff;border-radius:999px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></a>
+        <a href="/salas" style="font-weight:800;">🎮 Salas</a>
       </div>
     </div>
   </div>
@@ -1496,57 +1521,73 @@ function navbar(sesion, nNotif, extra, opts) {
       background: rgba(225,29,72,0.35); border-color: #e11d48;
     }
     .cfm-more-lines { display: flex; flex-direction: column; gap: 5px; width: 18px; }
-    .cfm-more-lines span {
-      display: block; height: 2px; width: 100%; border-radius: 2px; background: #fff;
-    }
+    .cfm-more-lines span { display: block; height: 2px; width: 100%; border-radius: 2px; background: #fff; }
     .cfm-more-panel {
       position: absolute; right: 0; top: calc(100% + 8px); z-index: 100000;
       min-width: min(320px, 92vw); max-width: 92vw;
       background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
       border: 1px solid #334155; border-radius: 14px;
-      box-shadow: 0 16px 40px rgba(0,0,0,0.45);
-      padding: 10px;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.45); padding: 10px;
     }
     .cfm-more-panel[hidden] { display: none !important; }
-    .cfm-more-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
-    }
+    .cfm-more-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
     .cfm-more-grid a {
       display: block; padding: 10px 12px; border-radius: 10px;
       color: #e5e7eb !important; text-decoration: none !important;
       font-size: 13px; font-weight: 700; white-space: nowrap;
     }
-    .cfm-more-grid a:hover {
-      background: rgba(225,29,72,0.2); color: #fff !important;
+    .cfm-more-grid a:hover { background: rgba(225,29,72,0.2); color: #fff !important; }
+    /* Por defecto: menú completo (filas 2 y 3). Compacto = hamburguesa de secciones (opcional en Config) */
+    html:not(.cfm-nav-compact) .cfm-nav-compact-only { display: none !important; }
+    html.cfm-nav-compact .cfm-nav-full-only { display: none !important; }
+    html.cfm-nav-compact .cfm-nav-compact-only { display: inline-flex !important; }
+    /* Chips categorías mods */
+    .cfm-cat-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 16px; }
+    .cfm-cat-chip {
+      display: inline-block; padding: 7px 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
+      text-decoration: none !important; color: #e5e7eb !important; background: #1f2937; border: 1px solid #374151;
     }
-    @media (max-width: 640px) {
-      .cfm-more-grid { grid-template-columns: 1fr; }
-      .cfm-more-panel { right: auto; left: 50%; transform: translateX(-50%); }
+    .cfm-cat-chip:hover { border-color: #e11d48; color: #fff !important; }
+    .cfm-cat-chip.active { background: #e11d48; border-color: #e11d48; color: #fff !important; }
+    .cfm-cat-more-wrap { position: relative; display: inline-flex; }
+    .cfm-cat-more-btn {
+      display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px;
+      font-size: 12px; font-weight: 800; cursor: pointer; color: #fff; background: #111827;
+      border: 1px solid #4b5563;
     }
+    .cfm-cat-more-btn .lines { display: flex; flex-direction: column; gap: 3px; width: 14px; }
+    .cfm-cat-more-btn .lines i { display: block; height: 2px; background: #fff; border-radius: 2px; }
+    .cfm-cat-more-panel {
+      position: absolute; left: 0; top: calc(100% + 6px); z-index: 50; min-width: 220px;
+      background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 8px;
+      box-shadow: 0 12px 28px rgba(0,0,0,0.4);
+    }
+    .cfm-cat-more-panel[hidden] { display: none !important; }
+    .cfm-cat-more-panel a {
+      display: block; padding: 8px 10px; border-radius: 8px; color: #e5e7eb !important;
+      text-decoration: none !important; font-size: 13px; font-weight: 600;
+    }
+    .cfm-cat-more-panel a:hover, .cfm-cat-more-panel a.active { background: rgba(225,29,72,0.25); }
   </style>
   <script>
   (function(){
+    try {
+      var compact = false;
+      try { compact = localStorage.getItem('cfm_nav_compact') === '1'; } catch (e) {}
+      if (compact) document.documentElement.classList.add('cfm-nav-compact');
+      else document.documentElement.classList.remove('cfm-nav-compact');
+    } catch (e) {}
     var btn = document.getElementById('cfm-more-btn');
     var panel = document.getElementById('cfm-more-panel');
-    if (!btn || !panel) return;
-    function close() {
-      panel.hidden = true;
-      btn.setAttribute('aria-expanded', 'false');
+    if (btn && panel) {
+      function close() { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); }
+      function open() { panel.hidden = false; btn.setAttribute('aria-expanded', 'true'); }
+      btn.addEventListener('click', function(e){ e.stopPropagation(); if (panel.hidden) open(); else close(); });
+      document.addEventListener('click', function(e){
+        if (!panel.hidden && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)) close();
+      });
+      document.addEventListener('keydown', function(e){ if (e.key === 'Escape') close(); });
     }
-    function open() {
-      panel.hidden = false;
-      btn.setAttribute('aria-expanded', 'true');
-    }
-    btn.addEventListener('click', function(e){
-      e.stopPropagation();
-      if (panel.hidden) open(); else close();
-    });
-    document.addEventListener('click', function(e){
-      if (!panel.hidden && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)) close();
-    });
-    document.addEventListener('keydown', function(e){
-      if (e.key === 'Escape') close();
-    });
   })();
   </script>
   <script>
@@ -2379,6 +2420,50 @@ app.get('/mods', async (req, res) => {
     } catch (e) {}
     const featuredBlock = renderFeaturedCarouselBlock(featuredModsPage, sesion, { id: 'featuredCarouselMods', title: '✨ Mods destacados' });
     const avatarMap = await fetchAvatarMap(pg.slice.map(m => m.autor).concat(featuredModsPage.map(m => m.autor)));
+    const catPrimary = ['Character Select', 'Dynos', 'Hangouts / Romhack', 'Gamemodes', 'Movesets'];
+    const catSecondary = ['Modifiers', 'Administrative / Utility', 'Resources', 'Otros'];
+    const qsBase = [];
+    if (req.query.buscar) qsBase.push('buscar=' + encodeURIComponent(req.query.buscar));
+    if (buscarVersion && buscarVersion !== 'Todas') qsBase.push('version=' + encodeURIComponent(buscarVersion));
+    if (orden && orden !== 'nuevos') qsBase.push('orden=' + encodeURIComponent(orden));
+    if (req.query.tag) qsBase.push('tag=' + encodeURIComponent(req.query.tag));
+    const qsJoin = (extra) => {
+      const p = qsBase.slice();
+      if (extra) p.push(extra);
+      return p.length ? ('?' + p.join('&')) : '';
+    };
+    const chip = (name, val) => {
+      const active = buscarCategoria === val || (val === 'Todas' && buscarCategoria === 'Todas');
+      const href = val === 'Todas' ? ('/mods' + qsJoin('')) : ('/mods' + qsJoin('categoria=' + encodeURIComponent(val)));
+      return `<a class="cfm-cat-chip${active ? ' active' : ''}" href="${href}">${escapeHtml(name)}</a>`;
+    };
+    const secLinks = catSecondary.map(c => {
+      const active = buscarCategoria === c;
+      return `<a class="${active ? 'active' : ''}" href="/mods${qsJoin('categoria=' + encodeURIComponent(c))}">${escapeHtml(c)}</a>`;
+    }).join('');
+    const catChipsHtml = `<div class="cfm-cat-bar">
+      ${chip('Todas', 'Todas')}
+      ${catPrimary.map(c => chip(c, c)).join('')}
+      <div class="cfm-cat-more-wrap">
+        <button type="button" class="cfm-cat-more-btn" id="cfm-cat-more-btn" aria-expanded="false">
+          <span class="lines" aria-hidden="true"><i></i><i></i><i></i></span> Más categorías
+        </button>
+        <div class="cfm-cat-more-panel" id="cfm-cat-more-panel" hidden>${secLinks}</div>
+      </div>
+    </div>
+    <script>
+    (function(){
+      var b = document.getElementById('cfm-cat-more-btn');
+      var p = document.getElementById('cfm-cat-more-panel');
+      if (!b || !p) return;
+      b.addEventListener('click', function(e){
+        e.stopPropagation();
+        p.hidden = !p.hidden;
+        b.setAttribute('aria-expanded', p.hidden ? 'false' : 'true');
+      });
+      document.addEventListener('click', function(){ p.hidden = true; b.setAttribute('aria-expanded','false'); });
+    })();
+    </script>`;
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="icon" href="/public/icon.png" type="image/png"><title>Mods | Coop Free Mods</title>${estilosCSS}</head><body>
       ${navbar(sesion, nNotif)}
       <div class="main-container">
@@ -2412,6 +2497,7 @@ app.get('/mods', async (req, res) => {
           <input type="text" name="tag" placeholder="Tag (ej: cs)" value="${escapeHtml(req.query.tag || '')}" style="max-width:120px;">
           <button type="submit" class="btn-blue">Filtrar</button>
         </form>
+        ${catChipsHtml}
         <p style="color:#9ca3af;margin-bottom:20px;font-weight:bold;">${pg.total} mods encontrados · Página ${pg.page} de ${pg.totalPages}</p>
         <div class="grid">${renderModCards(pg.slice, sesion, top1Id, avatarMap)}</div>
         ${renderPagination('/mods', pg.page, pg.totalPages, { buscar: req.query.buscar || '', version: buscarVersion === 'Todas' ? '' : buscarVersion, categoria: buscarCategoria === 'Todas' ? '' : buscarCategoria, orden: orden === 'nuevos' ? '' : orden, tag: req.query.tag || '' })}
@@ -4289,6 +4375,14 @@ app.get('/config', async (req, res) => {
           <input type="checkbox" id="optClick" style="width:auto;transform:scale(1.3);">
         </label>
 
+        <label class="config-row">
+          <span>
+            <b style="color:white;">Menú de secciones en hamburguesa ☰</b><br>
+            <span style="color:#9ca3af;font-size:13px;">Opcional: junta Usuarios, CoopTube, Salas, etc. en el botón de 3 líneas (el menú “compacto” de antes). Apagado = menú completo en filas.</span>
+          </span>
+          <input type="checkbox" id="optNavCompact" style="width:auto;transform:scale(1.3);">
+        </label>
+
         
 
 
@@ -4463,6 +4557,9 @@ app.get('/config', async (req, res) => {
         if (lst) setPref('cfm_list', lst.checked ? '1' : '0');
         if (bgm) setPref('cfm_bg_move', bgm.checked ? '1' : '0');
         if (clk) setPref('cfm_click', clk.checked ? '1' : '0');
+        var navc2 = document.getElementById('optNavCompact');
+        if (navc2) setPref('cfm_nav_compact', navc2.checked ? '1' : '0');
+        try { if (navc2 && navc2.checked) document.documentElement.classList.add('cfm-nav-compact'); else document.documentElement.classList.remove('cfm-nav-compact'); } catch(e){}
         if (auto) {
           setPref('cfm_auto_install', auto.checked ? '1' : '0');
           try { localStorage.setItem('cfm_auto_install', auto.checked ? '1' : '0'); } catch (e) {}
@@ -4555,6 +4652,8 @@ app.get('/config', async (req, res) => {
         mus.checked = getPref('cfm_music') === '1';
         lst.checked = getPref('cfm_list_view') === '1';
         clk.checked = getPref('cfm_click') === '1';
+        var navc = document.getElementById('optNavCompact');
+        if (navc) navc.checked = getPref('cfm_nav_compact') === '1';
       if (nCom) nCom.checked = getPref('cfm_notif_comentarios') !== '0';
       if (nLike) nLike.checked = getPref('cfm_notif_likes') !== '0';
       if (nMen) nMen.checked = getPref('cfm_notif_menciones') !== '0';
@@ -4573,6 +4672,9 @@ app.get('/config', async (req, res) => {
         setPref('cfm_music_track', track.value || '1');
         setPref('cfm_list_view', lst.checked ? '1' : '0');
         setPref('cfm_click', clk.checked ? '1' : '0');
+        var navc2 = document.getElementById('optNavCompact');
+        if (navc2) setPref('cfm_nav_compact', navc2.checked ? '1' : '0');
+        try { if (navc2 && navc2.checked) document.documentElement.classList.add('cfm-nav-compact'); else document.documentElement.classList.remove('cfm-nav-compact'); } catch(e){}
         if (nCom) setPref('cfm_notif_comentarios', nCom.checked ? '1' : '0');
         if (nLike) setPref('cfm_notif_likes', nLike.checked ? '1' : '0');
         if (nMen) setPref('cfm_notif_menciones', nMen.checked ? '1' : '0');
