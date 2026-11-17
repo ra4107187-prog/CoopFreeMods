@@ -1477,6 +1477,7 @@ function navbar(sesion, nNotif, extra, opts) {
               <a href="/jugar-sm64">🍄 sm64 web port</a>
               <a href="/cola" id="cfm-cola-nav-compact">🕐 Cola</a>
               <a href="/salas">🎮 Salas</a>
+              <a href="/reciente">🕒 Reciente</a>
               <a href="/saturn">🪐 Saturn 64</a>
             </div>
           </div>
@@ -1506,6 +1507,7 @@ function navbar(sesion, nNotif, extra, opts) {
         <a href="/jugar-sm64" style="font-weight:800;">🍄 sm64coop dx web port</a>
         <a href="/cola" id="cfm-cola-nav" style="font-weight:800;">🕐 Cola <span id="cfm-cola-badge" style="display:none;background:#e11d48;color:#fff;border-radius:999px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></a>
         <a href="/salas" style="font-weight:800;">🎮 Salas</a>
+        <a href="/reciente" style="font-weight:800;">🕒 Reciente</a>
       </div>
     </div>
   </div>
@@ -7214,6 +7216,88 @@ app.post('/api/notif-prefs', async (req, res) => {
 
 
 // ========== Salas (lobbies de coordinación) ==========
+
+app.get('/reciente', async (req, res) => {
+  const sesion = await getSesion(req);
+  const nNotif = await countNotif(sesion.name);
+  const items = [];
+  const push = (tipo, titulo, href, meta, at) => {
+    items.push({
+      tipo, titulo: titulo || '—', href: href || '#',
+      meta: meta || '',
+      at: at ? new Date(at).getTime() : 0,
+      atLabel: at ? new Date(at).toLocaleString('es-AR') : ''
+    });
+  };
+  try {
+    try {
+      const { data } = await supabase.from('mods').select('id,titulo,autor,created_at,fecha_creacion,descargas').order('id', { ascending: false }).limit(12);
+      (data || []).forEach(m => push('mod', m.titulo, '/mod/' + m.id, '📦 Mod · @' + (m.autor || '?') + ' · ⬇️ ' + (m.descargas || 0), m.created_at || m.fecha_creacion));
+    } catch (e) { console.error('reciente mods', e); }
+    try {
+      const { data } = await supabase.from('foro_temas').select('id,titulo,autor,updated_at,created_at,vistas').order('updated_at', { ascending: false }).limit(10);
+      (data || []).forEach(f => push('foro', f.titulo, '/foros/tema/' + f.id, '💬 Foro · @' + (f.autor || '?') + ' · 👁 ' + (f.vistas || 0), f.updated_at || f.created_at));
+    } catch (e) {}
+    try {
+      const { data } = await supabase.from('videos').select('id,titulo,autor,created_at,vistas').order('created_at', { ascending: false }).limit(10);
+      (data || []).forEach(v => push('video', v.titulo, '/cooptube/v/' + v.id, '📺 Video · @' + (v.autor || '?') + ' · 👁 ' + (v.vistas || 0), v.created_at));
+    } catch (e) {}
+    try {
+      const { data } = await supabase.from('novedades').select('id,titulo,created_at,autor').order('created_at', { ascending: false }).limit(8);
+      (data || []).forEach(n => push('novedad', n.titulo, '/novedades', '📰 Novedad' + (n.autor ? ' · @' + n.autor : ''), n.created_at));
+    } catch (e) {}
+    try {
+      const { data } = await supabase.from('tutoriales').select('id,titulo,autor,created_at').order('created_at', { ascending: false }).limit(8);
+      (data || []).forEach(x => push('tutorial', x.titulo, '/tutoriales/' + x.id, '📘 Tutorial · @' + (x.autor || '?'), x.created_at));
+    } catch (e) {}
+    try {
+      const { data } = await supabase.from('usuarios').select('usuario,fecha_registro,created_at').order('fecha_registro', { ascending: false }).limit(10);
+      (data || []).forEach(u => push('user', '@' + u.usuario, '/user/' + encodeURIComponent(u.usuario), '👤 Usuario nuevo', u.fecha_registro || u.created_at));
+    } catch (e) {
+      try {
+        const { data } = await supabase.from('usuarios').select('usuario').limit(10);
+        (data || []).forEach(u => push('user', '@' + u.usuario, '/user/' + encodeURIComponent(u.usuario), '👤 Usuario', null));
+      } catch (e2) {}
+    }
+    try {
+      const { data } = await supabase.from('eventos').select('id,titulo,fecha_evento,created_at').order('created_at', { ascending: false }).limit(6);
+      (data || []).forEach(ev => push('evento', ev.titulo, '/eventos', '📅 Evento', ev.created_at || ev.fecha_evento));
+    } catch (e) {}
+    try {
+      const { data } = await supabase.from('mod_packs').select('id,titulo,autor,created_at').order('created_at', { ascending: false }).limit(6);
+      (data || []).forEach(pk => push('pack', pk.titulo, '/packs/' + pk.id, '📦 Pack · @' + (pk.autor || '?'), pk.created_at));
+    } catch (e) {}
+    try {
+      const { data } = await supabase.from('salas').select('codigo,titulo,host,created_at,abierta').order('created_at', { ascending: false }).limit(6);
+      (data || []).forEach(s => push('sala', s.titulo, '/salas/' + encodeURIComponent(s.codigo), '🎮 Sala · @' + (s.host || '?') + (s.abierta === false ? ' · cerrada' : ''), s.created_at));
+    } catch (e) {}
+  } catch (e) {
+    console.error('reciente', e);
+  }
+
+  items.sort((a, b) => (b.at || 0) - (a.at || 0));
+  const list = items.slice(0, 60).map(it => `
+    <a href="${escapeHtml(it.href)}" class="comment-box" style="display:block;text-decoration:none;color:inherit;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+        <div style="min-width:0;flex:1;">
+          <div style="color:#fff;font-weight:800;font-size:15px;">${withCfmIcon(escapeHtml(it.titulo))}</div>
+          <div style="color:#9ca3af;font-size:12px;margin-top:4px;">${escapeHtml(it.meta)}</div>
+        </div>
+        <div style="color:#6b7280;font-size:11px;white-space:nowrap;">${escapeHtml(it.atLabel)}</div>
+      </div>
+    </a>`).join('') || '<p style="color:#9ca3af;">Todavía no hay actividad reciente.</p>';
+
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="/public/icon.png" type="image/png"><title>Reciente | Coop Free Mods</title>${estilosCSS}</head><body>
+    ${navbar(sesion, nNotif)}
+    <div class="main-container" style="max-width:820px;">
+      <h1 style="color:#fff;margin:0 0 8px;">🕒 Todo lo reciente</h1>
+      <p style="color:#9ca3af;margin:0 0 20px;font-size:14px;">Mods, foros, videos, novedades, tutoriales, usuarios, eventos, packs y salas — ordenados por fecha.</p>
+      ${list}
+    </div>
+  </body></html>`);
+});
+
+
 app.get('/salas', async (req, res) => {
   const sesion = await getSesion(req);
   const nNotif = await countNotif(sesion.name);
